@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # --- 1. 全域配置與自選股清單 ---
 # 💡 安全機制：提供完整的 Token。若因時效或系統限制而失效，系統會自動切換為公用免密通道，保證法人數據有起伏。
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoMF5X0NoZW44iLCJlY2I6ImNoZW55dWduY29tiWgidG9rZW4iOi9rZW55Z29rZ23zZDM5cmV2Y21vbiI6MHI0cmV0f_wOgMG3EZNfZzP5cmBRX7VQX5ugV9fyVEk"
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk"
 
 # 🚀 擴大至 205 檔熱門台股完整分類清單
 WATCHLIST = [
