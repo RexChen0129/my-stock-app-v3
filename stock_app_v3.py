@@ -7,8 +7,8 @@ import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-# --- 1. 全域配置與自選股清單 ---
-FINMIND_TOKEN = ""  # 若有您的 Token 請填入，無則留空使用公用流量
+# --- 1. 全域配置與自選股清單 (已自動填入您的真實 FinMind Token) ---
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk"
 
 # 預設自選股卡片清單 (名稱, 代碼)
 WATCHLIST = [
@@ -20,7 +20,7 @@ WATCHLIST = [
     {"name": "富邦金", "id": "2881"}
 ]
 
-# --- 2. 高效並發數據抓取函數 ---
+# --- 2. 高效並發數據抓取函數 (多執行緒加速) ---
 def fetch_price_data(stock_id, start_date):
     """負責抓取股價數據"""
     URL = "https://api.finmindtrade.com/api/v4/data"
@@ -59,7 +59,7 @@ def get_comprehensive_data(stock_id, days=730):
     start_date_p = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     start_date_i = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
     
-    # 💡 使用多執行緒同時請求數據，提升一倍載入效率
+    # 使用多執行緒同時請求數據，提升一倍載入效率
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_p = executor.submit(fetch_price_data, stock_id, start_date_p)
         future_i = executor.submit(fetch_inst_data, stock_id, start_date_i)
@@ -71,20 +71,22 @@ def get_comprehensive_data(stock_id, days=730):
         return None
 
     try:
-        # 整理股價數據並做時間標準化
-        df_price['date'] = pd.to_datetime(df_price['date']).dt.normalize()
-        df_price = df_price.sort_values('date')
+        # 整理股價數據並統一轉換為字串型態 YYYY-MM-DD，徹底解決時間戳格式不同導致的對齊失敗問題
+        df_price['date_str'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
+        df_price = df_price.sort_values('date_str')
 
-        # 整理法人數據並利用 merge_asof 進行絕對時間對齊 (預防帶時間戳之毫秒差問題)
+        # 整理法人數據，強制統一欄位為小寫後對齊
         if not df_inst.empty:
-            df_inst['date'] = pd.to_datetime(df_inst['date']).dt.normalize()
+            df_inst['date_str'] = pd.to_datetime(df_inst['date']).dt.strftime('%Y-%m-%d')
             df_inst.columns = [c.lower() for c in df_inst.columns]
             
             if 'buy' in df_inst.columns and 'sell' in df_inst.columns:
                 df_inst['net'] = pd.to_numeric(df_inst['buy']) - pd.to_numeric(df_inst['sell'])
-                daily_inst = df_inst.groupby('date')['net'].sum().reset_index()
-                # 採用 merge 進行高精準度左合併
-                df = pd.merge(df_price, daily_inst, on='date', how='left')
+                # 將三大法人當日數據加總
+                daily_inst = df_inst.groupby('date_str')['net'].sum().reset_index()
+                
+                # 採用 merge 進行高精準度左合併 (依據 date_str)
+                df = pd.merge(df_price, daily_inst, on='date_str', how='left')
                 df.rename(columns={'net': 'Inst_Net'}, inplace=True)
                 df['Inst_Net'] = df['Inst_Net'].fillna(0)
             else:
@@ -94,9 +96,9 @@ def get_comprehensive_data(stock_id, days=730):
             df_price['Inst_Net'] = 0
             df = df_price
 
-        # 技術指標計算
-        df.set_index('date', inplace=True)
-        # 1. 均線 MA
+        # 技術指標計算 (設定 date_str 為 index)
+        df.set_index('date_str', inplace=True)
+        # 1. 均線 MA (5, 10, 20)
         df['MA5'] = df['close'].rolling(5).mean()
         df['MA10'] = df['close'].rolling(10).mean()
         df['MA20'] = df['close'].rolling(20).mean()
@@ -125,7 +127,6 @@ def render_mini_chart(stock_id):
     df = get_comprehensive_data(stock_id, days=60)
     if df is not None and len(df) > 0:
         recent = df.tail(30)
-        # 決定漲跌顏色 (台灣股市：最新收盤 >= 前一日收盤 為紅，反之為綠)
         color = 'red' if recent['close'].iloc[-1] >= recent['close'].iloc[0] else 'green'
         
         fig = go.Figure()
@@ -196,8 +197,6 @@ if st.session_state.selected_stock:
     
     if df is not None:
         df_plot = df.copy()
-        df_plot['date_str'] = df_plot.index.strftime('%Y-%m-%d')
-        # 動態計算寬度，確保 K 線比例正常不縮水
         plot_width = max(1200, len(df_plot) * 22)
         
         # 建立五層垂直子圖
@@ -206,39 +205,39 @@ if st.session_state.selected_stock:
             shared_xaxes=True, 
             vertical_spacing=0.03,
             row_heights=[0.35, 0.1, 0.15, 0.2, 0.2],
-            subplot_titles=("1. K線棒與三均線 (5/10/20 MA)", "2. 當日成交量", "3. 三大法人買賣超 (真實對齊數據)", "4. KD 指標", "5. MACD 趨勢")
+            subplot_titles=("1. K線棒與三均線 (5/10/20 MA)", "2. 當日成交量", "3. 三大法人買賣超 (真實籌碼起伏)", "4. KD 指標", "5. MACD 趨勢")
         )
 
         # 軌道 1: K線棒 + 3MA
         fig.add_trace(go.Candlestick(
-            x=df_plot['date_str'], open=df_plot['open'], high=df_plot['max'], low=df_plot['min'], close=df_plot['close'],
+            x=df_plot.index, open=df_plot['open'], high=df_plot['max'], low=df_plot['min'], close=df_plot['close'],
             name='K線', increasing_line_color='red', decreasing_line_color='green'
         ), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['MA5'], name='MA5', line=dict(color='white', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['MA10'], name='MA10', line=dict(color='yellow', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['MA20'], name='MA20', line=dict(color='magenta', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA5'], name='MA5', line=dict(color='white', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA10'], name='MA10', line=dict(color='yellow', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA20'], name='MA20', line=dict(color='magenta', width=1.5)), row=1, col=1)
 
         # 軌道 2: 成交量
         v_colors = ['red' if df_plot['close'].iloc[i] >= df_plot['open'].iloc[i] else 'green' for i in range(len(df_plot))]
-        fig.add_trace(go.Bar(x=df_plot['date_str'], y=df_plot['Trading_Volume'], name='成交量', marker_color=v_colors), row=2, col=1)
+        fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Trading_Volume'], name='成交量', marker_color=v_colors), row=2, col=1)
 
         # 軌道 3: 法人買賣超 (柱狀圖，紅買綠賣)
         inst_colors = ['red' if x >= 0 else 'green' for x in df_plot['Inst_Net']]
         fig.add_trace(go.Bar(
-            x=df_plot['date_str'], y=df_plot['Inst_Net'], 
+            x=df_plot.index, y=df_plot['Inst_Net'], 
             name='法人淨額', marker_color=inst_colors,
             hovertemplate='淨額: %{y:,.0f}'
         ), row=3, col=1)
 
         # 軌道 4: KD 指標
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['K'], name='K值', line=dict(color='orange')), row=4, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['D'], name='D值', line=dict(color='dodgerblue')), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['K'], name='K值', line=dict(color='orange')), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['D'], name='D值', line=dict(color='dodgerblue')), row=4, col=1)
 
         # 軌道 5: MACD
         m_colors = ['red' if x >= 0 else 'green' for x in df_plot['MACD_h']]
-        fig.add_trace(go.Bar(x=df_plot['date_str'], y=df_plot['MACD_h'], name='MACD柱', marker_color=m_colors), row=5, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['DIF'], name='DIF', line=dict(color='white')), row=5, col=1)
-        fig.add_trace(go.Scatter(x=df_plot['date_str'], y=df_plot['DEA'], name='DEA', line=dict(color='yellow')), row=5, col=1)
+        fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['MACD_h'], name='MACD柱', marker_color=m_colors), row=5, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['DIF'], name='DIF', line=dict(color='white')), row=5, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['DEA'], name='DEA', line=dict(color='yellow')), row=5, col=1)
 
         # 佈局與滑動設定
         fig.update_layout(
@@ -250,9 +249,9 @@ if st.session_state.selected_stock:
             showlegend=True
         )
         
-        # 💡 強制重置 Y 軸範圍，不讓法人數據被壓縮成一條線
+        # 強制 Y 軸自適應，讓法人和成交量有正確的起伏，拒絕一條線
         fig.update_yaxes(autorange=True, fixedrange=False)
-        # 💡 初始視野設定在最近的 100 根 K 線 (約半年)，保留剩餘 2 年資料供左右拖曳
+        # 初始視野設定在最近的 100 根 K 線 (約半年)，保留剩餘 2 年資料供左右拖曳
         fig.update_xaxes(type='category', range=[len(df_plot)-100, len(df_plot)])
 
         st.plotly_chart(fig, use_container_width=False, config={
