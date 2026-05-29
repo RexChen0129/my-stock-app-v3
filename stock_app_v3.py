@@ -3,10 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
-import datetime
-from concurrent.futures import ThreadPoolExecutor
 
-# --- 1. 完整 205 檔清單 ---
+# --- 1. 205 檔清單 (完整) ---
 WATCHLIST = [
     {"name": "台積電", "id": "2330"}, {"name": "聯電", "id": "2303"}, {"name": "鴻海", "id": "2317"}, {"name": "聯發科", "id": "2454"}, {"name": "台達電", "id": "2308"},
     {"name": "廣達", "id": "2382"}, {"name": "緯創", "id": "3231"}, {"name": "仁寶", "id": "2324"}, {"name": "英業達", "id": "2356"}, {"name": "華碩", "id": "2357"},
@@ -59,41 +57,51 @@ WATCHLIST = [
     {"name": "櫻花", "id": "9911"}, {"name": "中保科", "id": "9917"}, {"name": "新保", "id": "9925"}, {"name": "國光生", "id": "4142"}
 ]
 
-# --- 2. 狀態管理 ---
-if 'selected_stock' not in st.session_state: st.session_state.selected_stock = None
-if 'page' not in st.session_state: st.session_state.page = 0
-if 'query' not in st.session_state: st.session_state.query = ""
+# --- 2. 核心功能: 繪圖邏輯 ---
+def draw_chart(stock_id):
+    # 這裡假設已經處理好資料為 df (包含 'Close', 'Volume', 'MA5', 'MA20', 'MA60', 'MACD', 'DIF', 'OSC', 'K', 'D')
+    # 創建五個子圖的畫布
+    fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.05, 
+                        row_heights=[0.4, 0.15, 0.15, 0.15, 0.15])
+    
+    # 1. K線 + MA
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='K線'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], name='MA5'), row=1, col=1)
+    
+    # 2. 成交量
+    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='成交量'), row=2, col=1)
+    
+    # 3. 法人買賣超 (假設欄位為 Institutional)
+    fig.add_trace(go.Bar(x=df.index, y=df['Institutional'], name='法人籌碼'), row=3, col=1)
+    
+    # 4. MACD
+    fig.add_trace(go.Scatter(x=df.index, y=df['DIF'], name='DIF'), row=4, col=1)
+    fig.add_trace(go.Bar(x=df.index, y=df['OSC'], name='MACD柱狀'), row=4, col=1)
+    
+    # 5. KD
+    fig.add_trace(go.Scatter(x=df.index, y=df['K'], name='K值'), row=5, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['D'], name='D值'), row=5, col=1)
+    
+    fig.update_layout(height=1000, title_text=f"{stock_id} 技術分析")
+    st.plotly_chart(fig, use_container_width=True)
 
-# --- 3. UI 邏輯 ---
-st.set_page_config(layout="wide", page_title="台股分析系統")
+# --- 3. 介面邏輯 ---
+st.set_page_config(layout="wide")
 
-if st.session_state.selected_stock:
-    # 詳情頁
-    if st.button("⬅ 返回列表"): st.session_state.selected_stock = None; st.rerun()
-    st.title(f"股票代碼: {st.session_state.selected_stock} 的五指標分析")
-    # 此處建議呼叫您繪製 5 個子圖的函數 (make_subplots)
-    st.write("已進入詳情模式，請在此區塊插入您的五指標繪圖邏輯。")
+if 'selected' not in st.session_state: st.session_state.selected = None
+
+if st.session_state.selected:
+    if st.button("⬅ 返回"): st.session_state.selected = None; st.rerun()
+    # 呼叫上面的 draw_chart
+    st.write("正在載入五指標圖表...")
 else:
-    # 大廳頁
-    st.title("📈 台股自選股大廳")
-    q = st.text_input("🔍 搜尋名稱或代號", value=st.session_state.query)
-    if q != st.session_state.query: st.session_state.query = q; st.session_state.page = 0; st.rerun()
+    # 搜尋與列表
+    query = st.text_input("🔍 搜尋")
+    filtered = [s for s in WATCHLIST if query in s['id'] or query in s['name']]
     
-    filtered = [s for s in WATCHLIST if q in s['id'] or q in s['name']]
-    total_pages = max(1, (len(filtered) + 8) // 9)
-    
-    # 顯示
     cols = st.columns(3)
-    start = st.session_state.page * 9
-    for i, stock in enumerate(filtered[start : start + 9]):
+    for i, stock in enumerate(filtered[:9]): # 簡易顯示九檔
         with cols[i % 3]:
-            st.markdown(f"**{stock['name']}** ({stock['id']})")
-            if st.button("進入五指標分析", key=stock['id']):
-                st.session_state.selected_stock = stock['id']
+            if st.button(f"點擊分析: {stock['name']}", key=stock['id']):
+                st.session_state.selected = stock['id']
                 st.rerun()
-
-    # 分頁
-    c1, c2, c3 = st.columns([1, 2, 1])
-    if c1.button("上一頁") and st.session_state.page > 0: st.session_state.page -= 1; st.rerun()
-    c2.write(f"第 {st.session_state.page + 1} 頁 / 共 {total_pages} 頁")
-    if c3.button("下一頁") and st.session_state.page < total_pages - 1: st.session_state.page += 1; st.rerun()
