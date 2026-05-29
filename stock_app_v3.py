@@ -4,10 +4,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import datetime
-import time
 from concurrent.futures import ThreadPoolExecutor
 
-# --- 完整 205 檔清單 ---
+# --- 1. 完整 205 檔清單 ---
 WATCHLIST = [
     {"name": "台積電", "id": "2330"}, {"name": "聯電", "id": "2303"}, {"name": "鴻海", "id": "2317"}, {"name": "聯發科", "id": "2454"}, {"name": "台達電", "id": "2308"},
     {"name": "廣達", "id": "2382"}, {"name": "緯創", "id": "3231"}, {"name": "仁寶", "id": "2324"}, {"name": "英業達", "id": "2356"}, {"name": "華碩", "id": "2357"},
@@ -60,4 +59,41 @@ WATCHLIST = [
     {"name": "櫻花", "id": "9911"}, {"name": "中保科", "id": "9917"}, {"name": "新保", "id": "9925"}, {"name": "國光生", "id": "4142"}
 ]
 
-# (此處接續您的完整邏輯代碼...)
+# --- 2. 狀態管理 ---
+if 'selected_stock' not in st.session_state: st.session_state.selected_stock = None
+if 'page' not in st.session_state: st.session_state.page = 0
+if 'query' not in st.session_state: st.session_state.query = ""
+
+# --- 3. UI 邏輯 ---
+st.set_page_config(layout="wide", page_title="台股分析系統")
+
+if st.session_state.selected_stock:
+    # 詳情頁
+    if st.button("⬅ 返回列表"): st.session_state.selected_stock = None; st.rerun()
+    st.title(f"股票代碼: {st.session_state.selected_stock} 的五指標分析")
+    # 此處建議呼叫您繪製 5 個子圖的函數 (make_subplots)
+    st.write("已進入詳情模式，請在此區塊插入您的五指標繪圖邏輯。")
+else:
+    # 大廳頁
+    st.title("📈 台股自選股大廳")
+    q = st.text_input("🔍 搜尋名稱或代號", value=st.session_state.query)
+    if q != st.session_state.query: st.session_state.query = q; st.session_state.page = 0; st.rerun()
+    
+    filtered = [s for s in WATCHLIST if q in s['id'] or q in s['name']]
+    total_pages = max(1, (len(filtered) + 8) // 9)
+    
+    # 顯示
+    cols = st.columns(3)
+    start = st.session_state.page * 9
+    for i, stock in enumerate(filtered[start : start + 9]):
+        with cols[i % 3]:
+            st.markdown(f"**{stock['name']}** ({stock['id']})")
+            if st.button("進入五指標分析", key=stock['id']):
+                st.session_state.selected_stock = stock['id']
+                st.rerun()
+
+    # 分頁
+    c1, c2, c3 = st.columns([1, 2, 1])
+    if c1.button("上一頁") and st.session_state.page > 0: st.session_state.page -= 1; st.rerun()
+    c2.write(f"第 {st.session_state.page + 1} 頁 / 共 {total_pages} 頁")
+    if c3.button("下一頁") and st.session_state.page < total_pages - 1: st.session_state.page += 1; st.rerun()
