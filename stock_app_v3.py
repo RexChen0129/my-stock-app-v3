@@ -7,7 +7,13 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 # ==============================================================================
-# 【1. 完整 205 檔股票清單】保證一字不漏，直接內建於程式碼中
+# 【請在這裡填入你的 FinMind API Token】
+# ==============================================================================
+FINMIND_TOKEN = "你的_FINMIND_API_TOKEN_貼在這裡" 
+# ==============================================================================
+
+# ==============================================================================
+# 【1. 完整 205 檔股票清單】保證一字不漏
 # ==============================================================================
 WATCHLIST = [
     {"name": "台積電", "id": "2330"}, {"name": "聯電", "id": "2303"}, {"name": "鴻海", "id": "2317"}, 
@@ -76,7 +82,7 @@ WATCHLIST = [
 ]
 # ==============================================================================
 
-# 初始化 Session State (確保切換與導航正常)
+# 初始化 Session State
 if 'selected_stock' not in st.session_state:
     st.session_state.selected_stock = None
 if 'search_query' not in st.session_state:
@@ -88,7 +94,7 @@ st.set_page_config(layout="wide")
 
 # --- 2. 資料擷取函數區 ---
 def fetch_stock_data(stock_id):
-    """獲取基本K線資料"""
+    """獲取基本K線資料（已帶入 Token 驗證）"""
     end_date = datetime.date.today().strftime('%Y-%m-%d')
     start_date = (datetime.date.today() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -96,7 +102,8 @@ def fetch_stock_data(stock_id):
         "dataset": "TaiwanStockPrice",
         "data_id": stock_id,
         "start_date": start_date,
-        "end_date": end_date
+        "end_date": end_date,
+        "token": FINMIND_TOKEN  # 自動帶入上方設定的 Token
     }
     try:
         res = requests.get(url, params=params, timeout=10).json()
@@ -111,7 +118,7 @@ def fetch_stock_data(stock_id):
     return pd.DataFrame()
 
 def fetch_inst_data(stock_id):
-    """法人數據抓取變動"""
+    """法人數據抓取變動（已帶入 Token 驗證）"""
     end_date = datetime.date.today().strftime('%Y-%m-%d')
     start_date = (datetime.date.today() - datetime.timedelta(days=120)).strftime('%Y-%m-%d')
     url = "https://api.finmindtrade.com/api/v4/data"
@@ -119,7 +126,8 @@ def fetch_inst_data(stock_id):
         "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
         "data_id": stock_id,
         "start_date": start_date,
-        "end_date": end_date
+        "end_date": end_date,
+        "token": FINMIND_TOKEN  # 自動帶入上方設定的 Token
     }
     try:
         res = requests.get(url, params=params, timeout=10).json()
@@ -168,8 +176,7 @@ def calculate_indicators(df):
     return df
 
 def draw_mini_chart(df):
-    """首頁 3x3 網格內的微型 K 線圖 (新增防空保護機制)"""
-    # 確保 DataFrame 含有必要的 K 線欄位且不為空
+    """首頁 3x3 網格內的微型 K 線圖"""
     required_cols = ['open', 'high', 'low', 'close']
     if df.empty or not all(col in df.columns for col in required_cols) or len(df) < 5: 
         return None
@@ -223,7 +230,7 @@ if st.session_state.selected_stock:
             else:
                 df['net_value'] = 0
                 
-            df_plot = df.tail(120)  # 畫最近 120 天數據
+            df_plot = df.tail(120)
             
             fig = make_subplots(
                 rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03,
@@ -274,7 +281,6 @@ else:
     total_items = len(filtered)
     total_pages = max((total_items + 8) // 9, 1)
     
-    # 防止分頁溢出安全機制
     if st.session_state.current_page >= total_pages:
         st.session_state.current_page = 0
     
@@ -294,7 +300,6 @@ else:
                 with st.container(border=True):
                     stock_df = homepage_data.get(item['id'], pd.DataFrame())
                     
-                    # 安全拿取收盤價
                     if not stock_df.empty and 'close' in stock_df.columns:
                         last_row = stock_df.iloc[-1]
                         price_text = f" NT$ {last_row['close']:.2f}"
@@ -304,20 +309,18 @@ else:
                     st.markdown(f"### {item['name']} ({item['id']})")
                     st.markdown(f"**目前收盤價:** <span style='color:red;font-size:20px;'>{price_text}</span>", unsafe_allow_html=True)
                     
-                    # 繪製小 K 線（加入空資料保護）
                     mini_fig = draw_mini_chart(stock_df)
                     if mini_fig is not None:
                         st.plotly_chart(mini_fig, config={'displayModeBar': False}, width='stretch')
                     else:
                         st.caption("⚠️ 該時段無K線圖表提供")
-                        st.write("") # 留空排版
+                        st.write("")
                         
                     if st.button("詳細五指標分析 ➔", key=f"btn_{item['id']}", width='stretch'):
                         st.session_state.selected_stock = item['id']
                         st.rerun()
                         
         st.write("---")
-        # 下方分頁控制
         p_col1, p_col2, p_col3 = st.columns([2, 6, 2])
         with p_col1:
             if st.session_state.current_page > 0:
