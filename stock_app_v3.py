@@ -2,18 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
+import requests
+import datetime
+import time
+from concurrent.futures import ThreadPoolExecutor
 
-st.set_page_config(layout="wide", page_title="專業台股系統")
-
-# 初始化 Session
-if 'page' not in st.session_state: st.session_state.page = 0
-if 'selected' not in st.session_state: st.session_state.selected = None
-if 'search_query' not in st.session_state: st.session_state.search_query = ""
-
-# 205檔清單
+# --- 1. 嚴格定義變數：請確保這段清單完整貼在檔案最上方 ---
+# 為了避免 NameError，不要在此處使用任何 if 判斷式來定義它
 WATCHLIST = [
-    {"name": "台積電", "id": "2330"},
+     {"name": "台積電", "id": "2330"},
     {"name": "聯電", "id": "2303"},
     {"name": "鴻海", "id": "2317"},
     {"name": "聯發科", "id": "2454"},
@@ -261,6 +258,14 @@ WATCHLIST = [
     {"name": "新保", "id": "9925"},
     {"name": "國光生", "id": "4142"}
 ]
+
+# --- 2. 初始化 Session State (這是全域變數，放在這最安全) ---
+if 'selected_stock' not in st.session_state:
+    st.session_state.selected_stock = None
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 0
 def calculate_indicators(df):
     # 計算 MA
     df['MA5'] = df['Close'].rolling(window=5).mean()
