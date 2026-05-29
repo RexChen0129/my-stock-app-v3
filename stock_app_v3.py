@@ -4,307 +4,275 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import datetime
-import time
 from concurrent.futures import ThreadPoolExecutor
 
-# --- 1. 嚴格定義變數：請確保這段清單完整貼在檔案最上方 ---
-# 為了避免 NameError，不要在此處使用任何 if 判斷式來定義它
+# ==============================================================================
+# 【請在這裡保留/貼上你最完整的 205 檔股票清單】
+# 格式範例：
+# WATCHLIST = [
+#      {"name": "台積電", "id": "2330"},
+#      ... 你的兩百多檔 ...
+#      {"name": "國光生", "id": "4142"}
+# ]
+# ==============================================================================
 WATCHLIST = [
-     {"name": "台積電", "id": "2330"},
+    {"name": "台積電", "id": "2330"},
     {"name": "聯電", "id": "2303"},
     {"name": "鴻海", "id": "2317"},
     {"name": "聯發科", "id": "2454"},
-    {"name": "台達電", "id": "2308"},
-    {"name": "廣達", "id": "2382"},
-    {"name": "緯創", "id": "3231"},
-    {"name": "仁寶", "id": "2324"},
-    {"name": "英業達", "id": "2356"},
-    {"name": "華碩", "id": "2357"},
-    {"name": "微星", "id": "2377"},
-    {"name": "技嘉", "id": "2376"},
-    {"name": "光寶科", "id": "2301"},
-    {"name": "日月光投控", "id": "3711"},
-    {"name": "矽力*-KY", "id": "6415"},
-    {"name": "瑞昱", "id": "2379"},
-    {"name": "聯詠", "id": "3034"},
-    {"name": "大立光", "id": "3008"},
-    {"name": "力積電", "id": "6770"},
-    {"name": "旺宏", "id": "2337"},
-    {"name": "華邦電", "id": "2344"},
-    {"name": "南亞科", "id": "2408"},
-    {"name": "世界", "id": "5347"},
-    {"name": "環球晶", "id": "6488"},
-    {"name": "國巨", "id": "2327"},
-    {"name": "華通", "id": "2313"},
-    {"name": "欣興", "id": "3037"},
-    {"name": "景碩", "id": "3189"},
-    {"name": "南電", "id": "8046"},
-    {"name": "臻鼎-KY", "id": "4958"},
-    {"name": "台勝科", "id": "3532"},
-    {"name": "強茂", "id": "2481"},
-    {"name": "台半", "id": "5425"},
-    {"name": "新唐", "id": "4919"},
-    {"name": "研華", "id": "2395"},
-    {"name": "樺漢", "id": "6414"},
-    {"name": "佳世達", "id": "2352"},
-    {"name": "宏碁", "id": "2353"},
-    {"name": "神達", "id": "2315"},
-    {"name": "金像電", "id": "2368"},
-    {"name": "奇鋐", "id": "3017"},
-    {"name": "雙鴻", "id": "3324"},
-    {"name": "健策", "id": "3653"},
-    {"name": "世芯-KY", "id": "3661"},
-    {"name": "創意", "id": "3443"},
-    {"name": "智原", "id": "3035"},
-    {"name": "祥碩", "id": "5269"},
-    {"name": "譜瑞-KY", "id": "4966"},
-    {"name": "信驊", "id": "5274"},
-    {"name": "力旺", "id": "3529"},
-    {"name": "群聯", "id": "8299"},
-    {"name": "威剛", "id": "3260"},
-    {"name": "十銓", "id": "4967"},
-    {"name": "宇瞻", "id": "8271"},
-    {"name": "創見", "id": "2451"},
-    {"name": "友達", "id": "2409"},
-    {"name": "群創", "id": "3481"},
-    {"name": "彩晶", "id": "6116"},
-    {"name": "精材", "id": "3374"},
-    {"name": "采鈺", "id": "6789"},
-    {"name": "旺矽", "id": "6223"},
-    {"name": "穎崴", "id": "6515"},
-    {"name": "宏達電", "id": "2498"},
-    {"name": "威盛", "id": "2388"},
-    {"name": "全訊", "id": "5222"},
-    {"name": "神準", "id": "3558"},
-    {"name": "智邦", "id": "2345"},
-    {"name": "明泰", "id": "3380"},
-    {"name": "中磊", "id": "5388"},
-    {"name": "啟碁", "id": "6285"},
-    {"name": "正文", "id": "4906"},
-    {"name": "合勤控", "id": "3704"},
-    {"name": "兆赫", "id": "2485"},
-    {"name": "建漢", "id": "3062"},
-    {"name": "仲琦", "id": "2419"},
-    {"name": "星通", "id": "3025"},
-    {"name": "智易", "id": "3596"},
-    {"name": "神腦", "id": "2450"},
-    # --- 航運航空 & 傳產鋼鐵水泥橡膠紡織 ---
-    {"name": "長榮", "id": "2603"},
-    {"name": "陽明", "id": "2609"},
-    {"name": "萬海", "id": "2615"},
-    {"name": "華航", "id": "2610"},
-    {"name": "長榮航", "id": "2618"},
-    {"name": "中鋼", "id": "2002"},
-    {"name": "東和鋼鐵", "id": "2006"},
-    {"name": "新光鋼", "id": "2031"},
-    {"name": "中鴻", "id": "2014"},
-    {"name": "大成鋼", "id": "2027"},
-    {"name": "官田鋼", "id": "2017"},
-    {"name": "台泥", "id": "1101"},
-    {"name": "亞泥", "id": "1102"},
-    {"name": "台塑", "id": "1301"},
-    {"name": "南亞", "id": "1303"},
-    {"name": "台化", "id": "1326"},
-    {"name": "台塑化", "id": "6505"},
-    {"name": "華夏", "id": "1305"},
-    {"name": "台聚", "id": "1304"},
-    {"name": "亞聚", "id": "1308"},
-    {"name": "國喬", "id": "1312"},
-    {"name": "聯成", "id": "1313"},
-    {"name": "中石化", "id": "1314"},
-    {"name": "長興", "id": "1717"},
-    {"name": "統一", "id": "1216"},
-    {"name": "大成", "id": "1210"},
-    {"name": "卜蜂", "id": "1215"},
-    {"name": "愛之味", "id": "1217"},
-    {"name": "泰山", "id": "1218"},
-    {"name": "聯華", "id": "1229"},
-    {"name": "南僑", "id": "1702"},
-    {"name": "正新", "id": "2105"},
-    {"name": "建大", "id": "2106"},
-    {"name": "南港", "id": "2101"},
-    {"name": "遠東新", "id": "1402"},
-    {"name": "新纖", "id": "1409"},
-    {"name": "力麗", "id": "1444"},
-    {"name": "集盛", "id": "1455"},
-    {"name": "儒鴻", "id": "1476"},
-    {"name": "聚陽", "id": "1477"},
-    {"name": "東和", "id": "1414"},
-    {"name": "裕隆", "id": "2201"},
-    {"name": "中華車", "id": "2204"},
-    {"name": "三陽工業", "id": "2206"},
-    {"name": "和泰車", "id": "2207"},
-    {"name": "汎德永業", "id": "2247"},
-    {"name": "世紀鋼", "id": "9958"},
-    # --- 金融保險集團 ---
-    {"name": "富邦金", "id": "2881"},
-    {"name": "國泰金", "id": "2882"},
-    {"name": "兆豐金", "id": "2886"},
-    {"name": "中信金", "id": "2891"},
-    {"name": "玉山金", "id": "2884"},
-    {"name": "第一金", "id": "2892"},
-    {"name": "合庫金", "id": "5880"},
-    {"name": "華南金", "id": "2880"},
-    {"name": "元大金", "id": "2885"},
-    {"name": "台新金", "id": "2887"},
-    {"name": "永豐金", "id": "2890"},
-    {"name": "開發金", "id": "2883"},
-    {"name": "新光金", "id": "2888"},
-    {"name": "國票金", "id": "2889"},
-    {"name": "上海商銀", "id": "5876"},
-    {"name": "王道銀行", "id": "2897"},
-    {"name": "臺企銀", "id": "2834"},
-    {"name": "台中銀", "id": "2812"},
-    {"name": "聯邊銀", "id": "2838"},
-    {"name": "遠東銀", "id": "2845"},
-    {"name": "康和證", "id": "6016"},
-    {"name": "群益證", "id": "6005"},
-    {"name": "第一保", "id": "2851"},
-    {"name": "新產", "id": "2850"},
-    {"name": "中再保", "id": "2852"},
-    {"name": "三商壽", "id": "2867"},
-    # --- 營建、零售、觀光、生技能源 ---
-    {"name": "國產", "id": "2504"},
-    {"name": "國建", "id": "2501"},
-    {"name": "冠德", "id": "2520"},
-    {"name": "興富發", "id": "2542"},
-    {"name": "華固", "id": "2548"},
-    {"name": "長虹", "id": "5534"},
-    {"name": "皇翔", "id": "2545"},
-    {"name": "遠雄", "id": "5522"},
-    {"name": "統一超", "id": "2912"},
-    {"name": "全家", "id": "5903"},
-    {"name": "寶雅", "id": "5904"},
-    {"name": "遠東百", "id": "2903"},
-    {"name": "潤泰新", "id": "9945"},
-    {"name": "潤泰全", "id": "2915"},
-    {"name": "巨大", "id": "9921"},
-    {"name": "美利達", "id": "9914"},
-    {"name": "愛地雅", "id": "8933"},
-    {"name": "寶成", "id": "9904"},
-    {"name": "豐泰", "id": "9910"},
-    {"name": "百和", "id": "9938"},
-    {"name": "中租-KY", "id": "5871"},
-    {"name": "裕融", "id": "9941"},
-    {"name": "和潤企業", "id": "6592"},
-    {"name": "台汽電", "id": "8926"},
-    {"name": "中聯資源", "id": "9930"},
-    {"name": "信義", "id": "9940"},
-    {"name": "鳳凰", "id": "5706"},
-    {"name": "雄獅", "id": "2731"},
-    {"name": "晶華", "id": "2707"},
-    {"name": "王品", "id": "2727"},
-    {"name": "瓦城", "id": "2729"},
-    {"name": "美食-KY", "id": "2723"},
-    {"name": "雲品", "id": "2748"},
-    {"name": "台耀", "id": "4746"},
-    {"name": "美時", "id": "1795"},
-    {"name": "藥華藥", "id": "6446"},
-    {"name": "合一", "id": "4743"},
-    {"name": "中天", "id": "4128"},
-    {"name": "智擎", "id": "4162"},
-    {"name": "生華科", "id": "6492"},
-    {"name": "大江", "id": "8436"},
-    {"name": "葡萄王", "id": "1707"},
-    {"name": "杏輝", "id": "1734"},
-    {"name": "神隆", "id": "1789"},
-    {"name": "永信", "id": "3705"},
-    {"name": "東洋", "id": "4105"},
-    {"name": "精華", "id": "1565"},
-    {"name": "金可-KY", "id": "8406"},
-    {"name": "毛寶", "id": "1732"},
-    {"name": "康那香", "id": "9919"},
-    {"name": "恆大", "id": "1325"},
-    {"name": "南六", "id": "6504"},
-    {"name": "上緯投控", "id": "3708"},
-    {"name": "森崴能源", "id": "6806"},
-    {"name": "雲豹能源", "id": "6869"},
-    {"name": "泓德能源", "id": "6873"},
-    {"name": "永崴投控", "id": "3712"},
-    {"name": "中興電", "id": "1513"},
-    {"name": "亞力", "id": "1514"},
-    {"name": "華城", "id": "1519"},
-    {"name": "士電", "id": "1503"},
-    {"name": "樂事綠能", "id": "1529"},
-    {"name": "東元", "id": "1504"},
-    {"name": "聲寶", "id": "1604"},
-    {"name": "大同", "id": "2371"},
-    {"name": "中鼎", "id": "2404"},
-    {"name": "山隆", "id": "2616"},
-    {"name": "欣高", "id": "9931"},
-    {"name": "欣雄", "id": "8908"},
-    {"name": "漢翔", "id": "2634"},
-    {"name": "雷虎", "id": "8033"},
-    {"name": "千附精密", "id": "6829"},
-    {"name": "龍德造船", "id": "6753"},
-    {"name": "台船", "id": "2208"},
-    {"name": "事欣科", "id": "4916"},
-    {"name": "上銀", "id": "2049"},
-    {"name": "直得", "id": "1597"},
-    {"name": "亞德客-KY", "id": "1590"},
-    {"name": "川湖", "id": "2059"},
-    {"name": "金雨", "id": "4503"},
-    {"name": "喬山", "id": "1736"},
-    {"name": "岱宇", "id": "1598"},
-    {"name": "拓凱", "id": "4536"},
-    {"name": "明安", "id": "8938"},
-    {"name": "復盛應用", "id": "6670"},
-    {"name": "大魯閣", "id": "1432"},
-    {"name": "好樂迪", "id": "9943"},
-    {"name": "錢櫃", "id": "8359"},
-    {"name": "特力", "id": "2908"},
-    {"name": "櫻花", "id": "9911"},
-    {"name": "中保科", "id": "9917"},
-    {"name": "新保", "id": "9925"},
     {"name": "國光生", "id": "4142"}
 ]
+# ==============================================================================
 
-# --- 2. 初始化 Session State (這是全域變數，放在這最安全) ---
+# 初始化 Session State (確保切換與導航正常)
 if 'selected_stock' not in st.session_state:
     st.session_state.selected_stock = None
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 0
+
+st.set_page_config(layout="wide")
+
+# --- 1. 資料擷取函數區 ---
+def fetch_stock_data(stock_id):
+    """獲取基本K線資料"""
+    end_date = datetime.date.today().strftime('%Y-%m-%d')
+    start_date = (datetime.date.today() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+    url = "https://api.finmindtrade.com/api/v4/data"
+    params = {
+        "dataset": "TaiwanStockPrice",
+        "data_id": stock_id,
+        "start_date": start_date,
+        "end_date": end_date
+    }
+    try:
+        res = requests.get(url, params=params, timeout=10).json()
+        if res.get("data"):
+            df = pd.DataFrame(res["data"])
+            df.columns = [c.lower() for c in df.columns]
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            return df
+    except:
+        pass
+    return pd.DataFrame()
+
+def fetch_inst_data(stock_id):
+    """【法人數據抓取修正】徹底解決回傳空值或找不到欄位變直線的問題"""
+    end_date = datetime.date.today().strftime('%Y-%m-%d')
+    start_date = (datetime.date.today() - datetime.timedelta(days=120)).strftime('%Y-%m-%d')
+    url = "https://api.finmindtrade.com/api/v4/data"
+    params = {
+        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+        "data_id": stock_id,
+        "start_date": start_date,
+        "end_date": end_date
+    }
+    try:
+        res = requests.get(url, params=params, timeout=10).json()
+        if res.get("data"):
+            df = pd.DataFrame(res["data"])
+            df.columns = [c.lower() for c in df.columns]
+            df['date'] = pd.to_datetime(df['date'])
+            
+            # 動態檢查 API 欄位對應
+            buy_col = 'buy' if 'buy' in df.columns else ('ss_buy_volume' if 'ss_buy_volume' in df.columns else '')
+            sell_col = 'sell' if 'sell' in df.columns else ('ss_sell_volume' if 'ss_sell_volume' in df.columns else '')
+            
+            if buy_col and sell_col:
+                df['net_value'] = df[buy_col] - df[sell_col]
+            else:
+                # 備用容錯：若有三大法人個別買賣欄位，加總計算
+                df['net_value'] = 0
+                for c in df.columns:
+                    if 'buy' in c: df['net_value'] += df[c]
+                    if 'sell' in c: df['net_value'] -= df[c]
+                    
+            # 依日期加總法人買賣金額並設為索引
+            inst_summary = df.groupby('date')['net_value'].sum().reset_index()
+            inst_summary.set_index('date', inplace=True)
+            return inst_summary
+    except:
+        pass
+    return pd.DataFrame()
+
+# --- 2. 指標計算邏輯 ---
 def calculate_indicators(df):
-    # 計算 MA
-    df['MA5'] = df['Close'].rolling(window=5).mean()
-    df['MA20'] = df['Close'].rolling(window=20).mean()
-    df['MA60'] = df['Close'].rolling(window=60).mean()
-    # 計算 MACD
-    ema12 = df['Close'].ewm(span=12).mean()
-    ema26 = df['Close'].ewm(span=26).mean()
-    df['DIF'] = ema12 - ema26
-    df['MACD'] = df['DIF'].ewm(span=9).mean()
-    df['OSC'] = (df['DIF'] - df['MACD']) * 2
-    # 計算 KD
-    low_min = df['Low'].rolling(window=9).min()
-    high_max = df['High'].rolling(window=9).max()
-    rsv = 100 * ((df['Close'] - low_min) / (high_max - low_min))
-    df['K'] = rsv.ewm(com=2).mean()
-    df['D'] = df['K'].ewm(com=2).mean()
+    """計算三均線、MACD、KD核心數據"""
+    if df.empty: return df
+    # 1. 三條 MA 線 (5/20/60)
+    df['ma5'] = df['close'].rolling(window=5).mean()
+    df['ma20'] = df['close'].rolling(window=20).mean()
+    df['ma60'] = df['close'].rolling(window=60).mean()
+    
+    # 2. MACD 計算
+    ema12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['dif'] = ema12 - ema26
+    df['macd_signal'] = df['dif'].ewm(span=9, adjust=False).mean()
+    df['osc'] = df['dif'] - df['macd_signal']
+    
+    # 3. KD 計算
+    low_min = df['low'].rolling(window=9).min()
+    high_max = df['high'].rolling(window=9).max()
+    rsv = 100 * ((df['close'] - low_min) / (high_max - low_min).replace(0, 1))
+    df['k'] = rsv.ewm(com=2, adjust=False).mean()
+    df['d'] = df['k'].ewm(com=2, adjust=False).mean()
     return df
 
-def draw_chart(df, stock_id):
-    fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.02, 
-                        row_heights=[0.4, 0.15, 0.15, 0.15, 0.15])
-    # 1. K線 + MA
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close']), row=1, col=1)
-    # 2. 成交量 3. 法人 4. MACD 5. KD
-    # (此處填入您的繪圖 trace，確保使用 row=2, 3, 4, 5)
-    st.plotly_chart(fig, use_container_width=True)
+def draw_mini_chart(df):
+    """首頁 3x3 網格內的微型 K 線圖"""
+    if df.empty or len(df) < 10: return go.Figure()
+    sub_df = df.tail(15)
+    fig = go.Figure(data=[go.Candlestick(
+        x=sub_df.index, open=sub_df['open'], high=sub_df['high'], low=sub_df['low'], close=sub_df['close'],
+        increasing_line_color='red', decreasing_line_color='green',
+        increasing_fillcolor='red', decreasing_fillcolor='green'
+    )])
+    fig.update_layout(
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        margin=dict(l=0, r=0, t=0, b=0), height=60, showlegend=False, xaxis_rangeslider_visible=False
+    )
+    return fig
 
-# 介面邏輯
-if st.session_state.selected:
-    if st.button("⬅ 返回列表"): st.session_state.selected = None; st.rerun()
-    # 模擬資料與繪圖 (此處銜接您的 API 資料)
-    st.write(f"正在分析 {st.session_state.selected}...")
-else:
-    q = st.text_input("搜尋代號/名稱", value=st.session_state.search_query)
-    if q != st.session_state.search_query: st.session_state.search_query = q; st.session_state.page = 0; st.rerun()
+# --- 3. 多執行緒加速首頁加載 ---
+def get_homepage_data(stock_list):
+    results = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_id = {executor.submit(fetch_stock_data, s['id']): s['id'] for s in stock_list}
+        for future in future_to_id:
+            sid = future_to_id[future]
+            results[sid] = future.result()
+    return results
+
+# ==============================================================================
+# --- 4. 網頁渲染主介面邏輯 ---
+# ==============================================================================
+if st.session_state.selected_stock:
+    # ------------------ 【功能 3】點進去後的 5 指標分析詳細頁面 ------------------
+    stock_id = st.session_state.selected_stock
+    stock_name = next((s['name'] for s in WATCHLIST if s['id'] == stock_id), "")
     
+    col1, col2 = st.columns([8, 1])
+    with col1:
+        st.title(f"{stock_name} ({stock_id}) 五指標整合分析儀表板")
+    with col2:
+        if st.button("⬅ 返回列表", width='stretch'):
+            st.session_state.selected_stock = None
+            st.rerun()
+            
+    with st.spinner("智慧控盤數據計算中..."):
+        df = fetch_stock_data(stock_id)
+        df = calculate_indicators(df)
+        df_inst = fetch_inst_data(stock_id)
+        
+        if not df.empty:
+            # 整合法人數據，若沒有則補 0 避免出錯
+            if not df_inst.empty:
+                df = df.join(df_inst, how='left').fillna(0)
+            else:
+                df['net_value'] = 0
+                
+            df_plot = df.tail(120)  # 畫最近 120 天數據
+            
+            # 正式畫出包含 5 個獨立 row 的大圖表
+            fig = make_subplots(
+                rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                row_heights=[0.35, 0.15, 0.15, 0.15, 0.15],
+                subplot_titles=("1. K線與三條均線 (MA5/MA20/MA60)", "2. 當日交易量", "3. 三大法人買賣超變動 (修正版)", "4. MACD 指標", "5. KD 隨機指標")
+            )
+            
+            # 1. K線與 MA 均線
+            fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name="K線"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma5'], line=dict(color='blue', width=1.5), name="MA5"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma20'], line=dict(color='orange', width=1.5), name="MA20"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma60'], line=dict(color='purple', width=1.5), name="MA60"), row=1, col=1)
+            
+            # 2. 成交量柱狀圖 (漲紅跌綠)
+            v_colors = ['red' if c >= o else 'green' for c, o in zip(df_plot['close'], df_plot['open'])]
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['volume'], marker_color=v_colors, name="成交量"), row=2, col=1)
+            
+            # 3. 三大法人買賣超金額變動
+            inst_colors = ['red' if val >= 0 else 'green' for val in df_plot['net_value']]
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['net_value'], marker_color=inst_colors, name="法人買賣超"), row=3, col=1)
+            
+            # 4. MACD
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['dif'], line=dict(color='black'), name="DIF"), row=4, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['macd_signal'], line=dict(color='orange'), name="MACD"), row=4, col=1)
+            osc_colors = ['red' if val >= 0 else 'green' for val in df_plot['osc']]
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['osc'], marker_color=osc_colors, name="OSC柱狀圖"), row=4, col=1)
+            
+            # 5. KD 指標
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['k'], line=dict(color='blue'), name="K線"), row=5, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['d'], line=dict(color='orange'), name="D線"), row=5, col=1)
+            
+            fig.update_layout(height=950, showlegend=False, xaxis_rangeslider_visible=False, template="plotly_dark")
+            st.plotly_chart(fig, width='stretch')
+        else:
+            st.error("該股票暫無數據，請確認 API 連線狀態。")
+else:
+    # ------------------ 【功能 1 & 2】首頁搜尋、價格與九宮格分頁 ------------------
+    st.title("📈 智慧台股控盤系統分析大廳")
+    
+    # 頂部支援代號/名稱通用搜尋
+    q = st.text_input("🔍 請輸入股票代號或中文名稱進行搜尋：", value=st.session_state.search_query)
+    if q != st.session_state.search_query:
+        st.session_state.search_query = q
+        st.session_state.current_page = 0
+        st.rerun()
+        
     filtered = [s for s in WATCHLIST if q in s['id'] or q in s['name']]
-    # 頁數與顯示邏輯...
-    for item in filtered[st.session_state.page*9 : (st.session_state.page+1)*9]:
-        if st.button(f"{item['name']} ({item['id']})"):
-            st.session_state.selected = item['id']; st.rerun()
+    
+    total_items = len(filtered)
+    total_pages = (total_items + 8) // 9
+    
+    if total_items == 0:
+        st.warning("沒有找到相符的股票，請確認搜尋關鍵字。")
+    else:
+        start_idx = st.session_state.current_page * 9
+        end_idx = start_idx + 9
+        page_items = filtered[start_idx:end_idx]
+        
+        with st.spinner("同步刷新即時盤勢中..."):
+            homepage_data = get_homepage_data(page_items)
+            
+        # 建立 3x3 網格
+        cols = st.columns(3)
+        for idx, item in enumerate(page_items):
+            with cols[idx % 3]:
+                with st.container(border=True):
+                    stock_df = homepage_data.get(item['id'], pd.DataFrame())
+                    if not stock_df.empty:
+                        last_row = stock_df.iloc[-1]
+                        price_text = f" NT$ {last_row['close']:.2f}"
+                    else:
+                        price_text = " 讀取中..."
+                        
+                    st.markdown(f"### {item['name']} ({item['id']})")
+                    st.markdown(f"**目前收盤價:** <span style='color:red;font-size:20px;'>{price_text}</span>", unsafe_allow_html=True)
+                    
+                    # 畫小 K 線
+                    if not stock_df.empty:
+                        mini_fig = draw_mini_chart(stock_df)
+                        st.plotly_chart(mini_fig, config={'displayModeBar': False}, width='stretch')
+                        
+                    if st.button("詳細五指標分析 ➔", key=f"btn_{item['id']}", width='stretch'):
+                        st.session_state.selected_stock = item['id']
+                        st.rerun()
+                        
+        st.write("---")
+        # 下方分頁控制
+        p_col1, p_col2, p_col3 = st.columns([2, 6, 2])
+        with p_col1:
+            if st.session_state.current_page > 0:
+                if st.button("⬅ 上一頁", width='stretch'):
+                    st.session_state.current_page -= 1
+                    st.rerun()
+        with p_col2:
+            st.markdown(f"<p style='text-align:center; font-size:16px;'>目前分頁： 第 {st.session_state.current_page + 1} 頁 / 共 {total_pages} 頁 (總計 {total_items} 檔股票)</p>", unsafe_allow_html=True)
+        with p_col3:
+            if end_idx < total_items:
+                if st.button("下一頁 ➔", width='stretch'):
+                    st.session_state.current_page += 1
+                    st.rerun()
