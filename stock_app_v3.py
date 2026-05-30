@@ -7,9 +7,9 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 # ==============================================================================
-# 【重要提示】請在這裡填入你的 FinMind API Token，即可徹底擺脫匿名限流封鎖！
+# 【核心關鍵】請在這裡填入你複製的那串 eyJ0eX... 開頭的超長 FinMind Token
 # ==============================================================================
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk" 
+FINMIND_TOKEN = "你的_FINMIND_TOKEN_貼在這裡" 
 # ==============================================================================
 
 # ==============================================================================
@@ -29,7 +29,7 @@ WATCHLIST = [
     {"name": "春源", "id": "2010"}, {"name": "中鋼構", "id": "2013"}, {"name": "東明-KY", "id": "2238"}, 
     {"name": "大成", "id": "1210"}, {"name": "卜蜂", "id": "1215"}, {"name": "泰山", "id": "1218"}, 
     {"name": "福壽", "id": "1219"}, {"name": "聯華", "id": "1229"}, {"name": "大成鋼", "id": "2027"}, 
-    {"name": "彰源", "id": "2030"}, {"name": "新光鋼", "id": "2031"}, {"name": "允強", "id": "2034"}, 
+    {"name": "彰源", "id": "2030"}, {"name": "新光鋼", "id": "2031"}, {"name": "局強", "id": "2034"}, 
     {"name": "威致", "id": "2028"}, {"name": "海光", "id": "2038"}, {"name": "佳大", "id": "2033"}, 
     {"name": "聚亨", "id": "2022"}, {"name": "官田鋼", "id": "2017"}, {"name": "志聯", "id": "2024"}, 
     {"name": "松鋼", "id": "5016"}, {"name": "世紀鋼", "id": "9958"}, {"name": "新興", "id": "2605"}, 
@@ -82,7 +82,7 @@ WATCHLIST = [
 ]
 # ==============================================================================
 
-# 初始化 Session State 狀態機
+# 初始化分頁與導航狀態
 if 'selected_stock' not in st.session_state:
     st.session_state.selected_stock = None
 if 'search_query' not in st.session_state:
@@ -92,59 +92,67 @@ if 'current_page' not in st.session_state:
 
 st.set_page_config(layout="wide")
 
-# --- 2. 安全資料擷取函數區（保證不崩潰、歷史數據向前追溯） ---
+# --- 2. 新版 FinMind V4 驗證資料擷取模組（全面 Headers 化，防止 KeyError） ---
 def fetch_stock_data(stock_id):
-    """獲取基本K線資料（支援週末歷史追溯與全面防崩潰）"""
+    """獲取歷史K線數據，支援週末看盤與 Headers 憑證傳遞"""
     end_date = datetime.date.today().strftime('%Y-%m-%d')
     start_date = (datetime.date.today() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
     url = "https://api.finmindtrade.com/api/v4/data"
-    params = {
+    
+    parameter = {
         "dataset": "TaiwanStockPrice",
         "data_id": stock_id,
         "start_date": start_date,
         "end_date": end_date,
     }
-    # 如果使用者填寫了 Token，自動帶入
-    if FINMIND_TOKEN and FINMIND_TOKEN != "你的_FINMIND_API_TOKEN_貼在這裡":
-        params["token"] = FINMIND_TOKEN
+    
+    # 建立符合 FinMind V4 要求的 HTTP Headers 驗證機制
+    headers = {}
+    if FINMIND_TOKEN and FINMIND_TOKEN != "你的_FINMIND_TOKEN_貼在這裡":
+        headers["Authorization"] = f"Bearer {FINMIND_TOKEN}"
 
     try:
-        res = requests.get(url, params=params, timeout=8).json()
-        if res.get("data"):
+        res = requests.get(url, params=parameter, headers=headers, timeout=10).json()
+        if res.get("status") == 200 and res.get("data"):
             df = pd.DataFrame(res["data"])
             df.columns = [c.lower() for c in df.columns]
-            # 確保關鍵欄位全部存在，防範 API 回傳格式不符
-            required = ['date', 'open', 'high', 'low', 'close', 'volume']
-            if all(col in df.columns for col in required):
+            
+            # 嚴格驗證 K 線基本四大柱與成交量欄位，不全就不回傳，防止後續 KeyError
+            required_fields = ['date', 'open', 'high', 'low', 'close', 'volume']
+            if all(f in df.columns for f in required_fields):
                 df['date'] = pd.to_datetime(df['date'])
                 df.set_index('date', inplace=True)
                 return df
     except Exception:
         pass
-    return pd.DataFrame() # 發生任何意外時回傳空資料表，絕不噴紅色 Traceback
+    return pd.DataFrame()
 
 def fetch_inst_data(stock_id):
-    """法人數據抓取（全面防崩潰保護）"""
+    """獲取三大法人買賣超數據變動（帶有 V4 Headers 驗證機制）"""
     end_date = datetime.date.today().strftime('%Y-%m-%d')
     start_date = (datetime.date.today() - datetime.timedelta(days=120)).strftime('%Y-%m-%d')
     url = "https://api.finmindtrade.com/api/v4/data"
-    params = {
+    
+    parameter = {
         "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
         "data_id": stock_id,
         "start_date": start_date,
         "end_date": end_date,
     }
-    if FINMIND_TOKEN and FINMIND_TOKEN != "你的_FINMIND_API_TOKEN_貼在這裡":
-        params["token"] = FINMIND_TOKEN
+    
+    headers = {}
+    if FINMIND_TOKEN and FINMIND_TOKEN != "你的_FINMIND_TOKEN_貼在這裡":
+        headers["Authorization"] = f"Bearer {FINMIND_TOKEN}"
 
     try:
-        res = requests.get(url, params=params, timeout=8).json()
-        if res.get("data"):
+        res = requests.get(url, params=parameter, headers=headers, timeout=10).json()
+        if res.get("status") == 200 and res.get("data"):
             df = pd.DataFrame(res["data"])
             df.columns = [c.lower() for c in df.columns]
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'])
                 
+                # 自動適應 API 回傳的買賣超欄位名稱差異
                 buy_col = 'buy' if 'buy' in df.columns else ('ss_buy_volume' if 'ss_buy_volume' in df.columns else '')
                 sell_col = 'sell' if 'sell' in df.columns else ('ss_sell_volume' if 'ss_sell_volume' in df.columns else '')
                 
@@ -163,25 +171,25 @@ def fetch_inst_data(stock_id):
         pass
     return pd.DataFrame()
 
-# --- 3. 指標安全計算邏輯 ---
+# --- 3. 指標安全計算核心邏輯 ---
 def calculate_indicators(df):
-    """安全計算三均線、MACD、KD，避免欄位缺失導致 KeyError"""
+    """計算技術指標：MA三線、MACD、KD。防護機制：若欄位不完整直接跳過不計算，防止閃退"""
     if df.empty or 'close' not in df.columns or 'high' not in df.columns or 'low' not in df.columns: 
         return df
         
-    # 1. 計算三均線
+    # 指標 1 的附屬線：MA 5/20/60
     df['ma5'] = df['close'].rolling(window=5).mean()
     df['ma20'] = df['close'].rolling(window=20).mean()
     df['ma60'] = df['close'].rolling(window=60).mean()
     
-    # 4. 計算 MACD
+    # 指標 4：MACD (DIF, MACD, OSC柱狀圖)
     ema12 = df['close'].ewm(span=12, adjust=False).mean()
     ema26 = df['close'].ewm(span=26, adjust=False).mean()
     df['dif'] = ema12 - ema26
     df['macd_signal'] = df['dif'].ewm(span=9, adjust=False).mean()
     df['osc'] = df['dif'] - df['macd_signal']
     
-    # 5. 計算 KD 線
+    # 指標 5：KD 隨機指標 (K線、D線)
     low_min = df['low'].rolling(window=9).min()
     high_max = df['high'].rolling(window=9).max()
     rsv = 100 * ((df['close'] - low_min) / (high_max - low_min).replace(0, 1))
@@ -190,12 +198,12 @@ def calculate_indicators(df):
     return df
 
 def draw_mini_chart(df):
-    """首頁 3x3 網格內的微型 K 線圖安全渲染"""
+    """渲染首頁九宮格股票內的小K線圖"""
     required_cols = ['open', 'high', 'low', 'close']
     if df.empty or not all(col in df.columns for col in required_cols) or len(df) < 5: 
         return None
         
-    sub_df = df.tail(15)
+    sub_df = df.tail(15) # 取最新 15 天數據
     fig = go.Figure(data=[go.Candlestick(
         x=sub_df.index, open=sub_df['open'], high=sub_df['high'], low=sub_df['low'], close=sub_df['close'],
         increasing_line_color='red', decreasing_line_color='green',
@@ -207,7 +215,7 @@ def draw_mini_chart(df):
     )
     return fig
 
-# --- 4. 多執行緒加速首頁加載 ---
+# --- 4. 多執行緒極速同步首頁數據 ---
 def get_homepage_data(stock_list):
     results = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -218,7 +226,7 @@ def get_homepage_data(stock_list):
     return results
 
 # ==============================================================================
-# --- 5. 網頁渲染主介面邏輯 ---
+# --- 5. 使用者網頁前端介面佈局 ---
 # ==============================================================================
 if st.session_state.selected_stock:
     # ------------------ 【功能 3】點進去後的 5 指標分析詳細頁面 ------------------
@@ -227,7 +235,7 @@ if st.session_state.selected_stock:
     
     col1, col2 = st.columns([8, 1])
     with col1:
-        st.title(f"{stock_name} ({stock_id}) 五指標整合分析儀表板")
+        st.title(f"📊 {stock_name} ({stock_id}) 五指標整合分析儀表板")
     with col2:
         if st.button("⬅ 返回列表", width='stretch'):
             st.session_state.selected_stock = None
@@ -238,56 +246,63 @@ if st.session_state.selected_stock:
         df = calculate_indicators(df)
         df_inst = fetch_inst_data(stock_id)
         
-        # 嚴格驗證所有繪圖所需的欄位，缺一不可
+        # 定義 5 大指標所需的所有必備欄位清單
         required_plot_cols = ['open', 'high', 'low', 'close', 'ma5', 'ma20', 'ma60', 'volume', 'dif', 'macd_signal', 'osc', 'k', 'd']
         
         if not df.empty and all(col in df.columns for col in required_plot_cols):
+            # 合併法人數據
             if not df_inst.empty and 'net_value' in df_inst.columns:
                 df = df.join(df_inst, how='left').fillna(0)
             else:
                 df['net_value'] = 0
                 
-            df_plot = df.tail(120)
+            df_plot = df.tail(120) # 畫圖呈現最新 120 根 K 棒
             
             fig = make_subplots(
                 rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-                row_heights=[0.35, 0.15, 0.15, 0.15, 0.15],
-                subplot_titles=("1. K線與三條均線 (MA5/MA20/MA60)", "2. 當日交易量", "3. 三大法人買賣超變動", "4. MACD 指標", "5. KD 隨機指標")
+                row_heights=[0.32, 0.17, 0.17, 0.17, 0.17],
+                subplot_titles=(
+                    "1. K線圖與三條均線 (MA5 / MA20 / MA60)", 
+                    "2. 當日交易成交量", 
+                    "3. 三大法人買賣超變動金額", 
+                    "4. MACD 趨勢指標 (DIF / MACD / OSC)", 
+                    "5. KD 隨機強弱指標 (K線 / D線)"
+                )
             )
             
-            # 指標 1: K線與 MA 三均線
+            # 1. K線與三條 MA 線
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name="K線"), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma5'], line=dict(color='blue', width=1.5), name="MA5"), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma20'], line=dict(color='orange', width=1.5), name="MA20"), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['ma60'], line=dict(color='purple', width=1.5), name="MA60"), row=1, col=1)
             
-            # 指標 2: 成交量柱狀圖
+            # 2. 成交量
             v_colors = ['red' if c >= o else 'green' for c, o in zip(df_plot['close'], df_plot['open'])]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['volume'], marker_color=v_colors, name="成交量"), row=2, col=1)
             
-            # 指標 3: 三大法人買賣超
+            # 3. 法人買賣超
             inst_colors = ['red' if val >= 0 else 'green' for val in df_plot['net_value']]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['net_value'], marker_color=inst_colors, name="法人買賣超"), row=3, col=1)
             
-            # 指標 4: MACD 線與柱狀圖(OSC)
+            # 4. MACD指標
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['dif'], line=dict(color='white'), name="DIF"), row=4, col=1)
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['macd_signal'], line=dict(color='yellow'), name="MACD"), row=4, col=1)
             osc_colors = ['red' if val >= 0 else 'green' for val in df_plot['osc']]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['osc'], marker_color=osc_colors, name="OSC柱狀圖"), row=4, col=1)
             
-            # 指標 5: KD 隨機指標線
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['k'], line=dict(color='cyan'), name="K線"), row=5, col=1)
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['d'], line=dict(color='magenta'), name="D線"), row=5, col=1)
+            # 5. KD隨機指標
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['k'], line=dict(color='cyan'), name="K值"), row=5, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['d'], line=dict(color='magenta'), name="D值"), row=5, col=1)
             
-            fig.update_layout(height=950, showlegend=False, xaxis_rangeslider_visible=False, template="plotly_dark")
+            fig.update_layout(height=1000, showlegend=False, xaxis_rangeslider_visible=False, template="plotly_dark")
             st.plotly_chart(fig, width='stretch')
         else:
-            st.error("⚠️ 歷史數據加載失敗。可能原因：您的匿名請求已被 FinMind 官方伺服器限流封鎖。請在程式碼頂端填入您的真實 FINMIND_TOKEN 以進行完全解鎖。")
+            st.error("⚠️ 資料載入異常。請確認程式碼頂端的 `FINMIND_TOKEN` 欄位已正確填入你那串 eyJ0eX... 開頭的完整 V4 金鑰憑證。")
 else:
     # ------------------ 【功能 1 & 2】首頁搜尋、價格與九宮格分頁 ------------------
-    st.title("📈 專業台股自選股大廳")
+    st.title("📈 智慧台股控盤系統分析大廳")
     
-    # 頂部中英文/代號通用搜尋列
+    # 【功能 2】頂部支援中英文名稱、股票代號通用搜尋列
     q = st.text_input("🔍 請輸入股票代號或中文名稱進行搜尋：", value=st.session_state.search_query)
     if q != st.session_state.search_query:
         st.session_state.search_query = q
@@ -295,7 +310,6 @@ else:
         st.rerun()
         
     filtered = [s for s in WATCHLIST if q in s['id'] or q in s['name']]
-    
     total_items = len(filtered)
     total_pages = max((total_items + 8) // 9, 1)
     
@@ -303,13 +317,14 @@ else:
         st.session_state.current_page = 0
     
     if total_items == 0:
-        st.warning("沒有找到相符的股票，請確認搜尋關鍵字。")
+        st.warning("查無此股票，請修正搜尋代號或中文名稱。")
     else:
+        # 【功能 1】一頁九個，九宮格配置
         start_idx = st.session_state.current_page * 9
         end_idx = start_idx + 9
         page_items = filtered[start_idx:end_idx]
         
-        with st.spinner("同步刷新即時盤勢中..."):
+        with st.spinner("盤勢資料同步中..."):
             homepage_data = get_homepage_data(page_items)
             
         cols = st.columns(3)
@@ -322,22 +337,24 @@ else:
                         last_row = stock_df.iloc[-1]
                         price_text = f" NT$ {last_row['close']:.2f}"
                     else:
-                        price_text = " 限流封鎖"
+                        price_text = " 憑證未填"
                         
                     st.markdown(f"### {item['name']} ({item['id']})")
-                    st.markdown(f"**歷史收盤價:** <span style='color:#FF4B4B;font-size:20px;'>{price_text}</span>", unsafe_allow_html=True)
+                    st.markdown(f"**最新收盤價:** <span style='color:#FF4B4B;font-size:20px;'>{price_text}</span>", unsafe_allow_html=True)
                     
+                    # 繪製迷你歷史 K 線圖
                     mini_fig = draw_mini_chart(stock_df)
                     if mini_fig is not None:
                         st.plotly_chart(mini_fig, config={'displayModeBar': False}, width='stretch')
                     else:
-                        st.caption("⚠️ API上限請改用Token")
+                        st.caption("⚠️ 無歷史K線（請在程式頂端設定正確Token）")
                         st.write("")
                         
                     if st.button("詳細五指標分析 ➔", key=f"btn_{item['id']}", width='stretch'):
                         st.session_state.selected_stock = item['id']
                         st.rerun()
                         
+        # 分頁導航列設計
         st.write("---")
         p_col1, p_col2, p_col3 = st.columns([2, 6, 2])
         with p_col1:
@@ -346,7 +363,7 @@ else:
                     st.session_state.current_page -= 1
                     st.rerun()
         with p_col2:
-            st.markdown(f"<p style='text-align:center; font-size:16px;'>目前分頁： 第 {st.session_state.current_page + 1} 頁 / 共 {total_pages} 頁 (總計 {total_items} 檔股票)</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:center; font-size:16px;'>分頁進度：第 {st.session_state.current_page + 1} 頁 / 共 {total_pages} 頁 (清單總計 {total_items} 檔)</p>", unsafe_allow_html=True)
         with p_col3:
             if end_idx < total_items:
                 if st.button("下一頁 ➔", width='stretch'):
