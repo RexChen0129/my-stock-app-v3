@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 # ==============================================================================
 # 【核心關鍵】請在這裡填入你複製的那串 eyJ0eX... 開頭的超長 FinMind Token
 # ==============================================================================
-FINMIND_TOKEN = "你的_FINMIND_TOKEN_貼在這裡" 
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk" 
 # ==============================================================================
 
 # ==============================================================================
