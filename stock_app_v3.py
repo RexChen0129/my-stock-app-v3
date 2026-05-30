@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 # ==============================================================================
 # 【請在這裡填入你的 FinMind API Token】
 # ==============================================================================
-FINMIND_TOKEN = "你的_FINMIND_API_TOKEN_貼在這裡" 
+FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk" 
 # ==============================================================================
 
 # ==============================================================================
