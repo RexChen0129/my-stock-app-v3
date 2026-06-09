@@ -468,7 +468,7 @@ if st.session_state.selected_stock:
         st.session_state.selected_stock = None
         st.rerun()
         
-    st.markdown(f"## 📊 股票代碼 {active_id} 專業五指標分析")
+    st.markdown(f"## 📊 股票代碼 {active_id} 五指標分析")
     
     with st.spinner('正在使用多執行緒高速調用數據與計算指標...'):
         df = get_comprehensive_data(active_id, days=730)
@@ -542,7 +542,7 @@ if st.session_state.selected_stock:
 
 # --- B. 【功能 1 & 2】自選股首頁列表與搜尋頁面 ---
 else:
-    st.write("# 📈 專業台股自選股大廳")
+    st.write("# 📈 台股自選股大廳")
     st.write("精選股票 ")
     
     # 【功能 2】最上面搜尋欄：支援中文名稱 或 代碼搜尋
