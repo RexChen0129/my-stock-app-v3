@@ -426,7 +426,7 @@ def render_mini_chart(stock_id):
     return None, None, None
 
 # --- 4. 網頁介面 CSS 視覺美化 ---
-st.set_page_config(layout="wide", page_title="專業台股自選控盤系統 APP v3")
+st.set_page_config(layout="wide", page_title="台股自選控盤系統 APP v3")
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; }
@@ -543,7 +543,7 @@ if st.session_state.selected_stock:
 # --- B. 【功能 1 & 2】自選股首頁列表與搜尋頁面 ---
 else:
     st.write("# 📈 專業台股自選股大廳")
-    st.write("精選 **205 檔** 台股最核心上市櫃公司走勢。大廳迷你圖經性能優化加速，流暢運行。")
+    st.write("精選股票 ")
     
     # 【功能 2】最上面搜尋欄：支援中文名稱 或 代碼搜尋
     search_id = st.text_input("🔍 快速搜尋任何台股代碼或中文名稱", value="", placeholder="請輸入中文名稱或4位數代碼 (如: 陽明, 2330)...")
