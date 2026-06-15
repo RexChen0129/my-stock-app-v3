@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 # --- 1. 全域配置與自選股清單 ---
 FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk"
 
-# 🚀 完整保留 205 檔熱門台股分類清單，一個字都沒少
+# 🚀 完整 205 檔熱門台股分類清單，保證一字不漏
 WATCHLIST = [
     # --- 電子大廠 & 晶圓半導體 ---
     {"name": "台積電", "id": "2330"},
@@ -158,7 +158,7 @@ WATCHLIST = [
     {"name": "王道銀行", "id": "2897"},
     {"name": "臺企銀", "id": "2834"},
     {"name": "台中銀", "id": "2812"},
-    {"name": "聯邊銀", "id": "2838"},
+    {"name": "聯邦銀", "id": "2838"},
     {"name": "遠東銀", "id": "2845"},
     {"name": "康和證", "id": "6016"},
     {"name": "群益證", "id": "6005"},
@@ -279,6 +279,7 @@ def fetch_price_data(stock_id, start_date):
         res = requests.get(URL, params=params, headers=headers, timeout=15).json()
         df = pd.DataFrame(res.get('data', []))
         if df.empty:
+            time.sleep(0.1)  # 👈 在走向公共通道前加上防禦性延遲配速
             res = requests.get(URL, params=params, timeout=15).json()
             df = pd.DataFrame(res.get('data', []))
         return df
@@ -302,6 +303,7 @@ def fetch_inst_data(stock_id, start_date):
             res = requests.get(URL, params=params, headers=headers, timeout=15).json()
             data = res.get('data', [])
             if not data:
+                time.sleep(0.1)  # 👈 公共通道防禦性延遲
                 res = requests.get(URL, params=params, timeout=15).json()
                 data = res.get('data', [])
             if data: 
@@ -329,6 +331,7 @@ def get_comprehensive_data(stock_id, days=730):
     start_date_p = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     start_date_i = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
     
+    # 這裡抓詳情頁資料保持 max_workers=2
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_p = executor.submit(fetch_price_data, stock_id, start_date_p)
         future_i = executor.submit(fetch_inst_data, stock_id, start_date_i)
@@ -371,7 +374,7 @@ def get_comprehensive_data(stock_id, days=730):
         df['MA10'] = df['close'].rolling(10).mean()
         df['MA20'] = df['close'].rolling(20).mean()
         
-        # KD 指標計算
+        # KD 指釋計算
         l9, h9 = df['min'].rolling(9).min(), df['max'].rolling(9).max()
         rsv = (df['close'] - l9) / (h9 - l9).replace(0, 1) * 100
         df['K'] = rsv.ewm(com=2).mean()
@@ -463,7 +466,7 @@ if 'last_search' not in st.session_state:
 if 'last_filter' not in st.session_state:
     st.session_state.last_filter = False
 
-# --- A. 【詳情頁】點進去後的 5 指標分析詳細頁面 ---
+# --- A. 【詳情頁】五指標分析詳細頁面 ---
 if st.session_state.selected_stock:
     active_id = st.session_state.selected_stock
     
@@ -488,7 +491,7 @@ if st.session_state.selected_stock:
             subplot_titles=("1. K線棒與三均線 (5/10/20 MA)", "2. 當日成交量", "3. 三大法人買賣超 (真實籌碼起伏)", "4. KD 指標", "5. MACD 趨勢")
         )
 
-        # 1. K線棒 + 3MA
+        # 功能 3-1: K線棒 + 3MA 線 (5/10/20)
         fig.add_trace(go.Candlestick(
             x=df_plot.index, open=df_plot['open'], high=df_plot['max'], low=df_plot['min'], close=df_plot['close'],
             name='K線', increasing_line_color='red', decreasing_line_color='green'
@@ -497,11 +500,11 @@ if st.session_state.selected_stock:
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA10'], name='MA10', line=dict(color='yellow', width=1.5)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MA20'], name='MA20', line=dict(color='magenta', width=1.5)), row=1, col=1)
 
-        # 2. 成交量
+        # 功能 3-2: 當日成交量
         v_colors = ['red' if df_plot['close'].iloc[i] >= df_plot['open'].iloc[i] else 'green' for i in range(len(df_plot))]
         fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Trading_Volume'], name='成交量', marker_color=v_colors), row=2, col=1)
 
-        # 3. 三大法人買賣超
+        # 功能 3-3: 三大法人買賣超
         inst_colors = ['red' if x >= 0 else 'green' for x in df_plot['Inst_Net']]
         fig.add_trace(go.Bar(
             x=df_plot.index, y=df_plot['Inst_Net'], 
@@ -509,11 +512,11 @@ if st.session_state.selected_stock:
             hovertemplate='淨額: %{y:,.0f}'
         ), row=3, col=1)
 
-        # 4. KD 指標
+        # 功能 3-5: KD 指標
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['K'], name='K值', line=dict(color='orange')), row=4, col=1)
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['D'], name='D值', line=dict(color='dodgerblue')), row=4, col=1)
 
-        # 5. MACD 趨勢
+        # 功能 3-4: MACD 趨勢
         m_colors = ['red' if x >= 0 else 'green' for x in df_plot['MACD_h']]
         fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['MACD_h'], name='MACD柱', marker_color=m_colors), row=5, col=1)
         fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['DIF'], name='DIF', line=dict(color='white')), row=5, col=1)
@@ -546,16 +549,14 @@ if st.session_state.selected_stock:
 else:
     st.write("# 📈 台股自選股大廳")
     
-    # 建立左右側排版：左邊放全新勾選面板，右邊放主要看盤大廳
     sidebar_col, main_col = st.columns([1, 4])
     
     with sidebar_col:
         st.markdown("### 🛠️ 策略活頁夾")
-        # ✨ 新增功能：勾選框判斷「今天K線比昨天K線高」的股票
         filter_strong = st.checkbox("🔥 K線強勢股 (今日>昨日)", value=False, help="勾選後僅列出今日收盤價高於昨日收盤價的標的")
         
     with main_col:
-        # 【功能 2】搜尋欄：支援中文名稱 或 代碼模糊搜尋
+        # 功能 2: 搜尋欄（支援中文名稱 與 4位數代號模糊搜尋）
         search_id = st.text_input("🔍 快速搜尋任何台股代碼或中文名稱", value="", placeholder="請輸入中文名稱或4位數代碼 (如: 陽明, 2330)...")
     
     # 計算基礎搜尋過濾
@@ -568,19 +569,18 @@ else:
         st.session_state.last_search = query
         st.session_state.last_filter = filter_strong
 
-    # 🚀 進階優化：利用 ThreadPoolExecutor 在背景快速檢驗、篩選與打包所需的股票數據，防止序列卡頓
+    # 🚀 安全降級：將 max_workers 從 10 降到 3，減緩對 API 瞬間的衝擊
     final_stocks_summary = []
     with st.spinner("正在執行多執行緒高可用資料校準與策略分析..."):
-        with ThreadPoolExecutor(max_workers=10) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             results = pool.map(load_single_stock_summary, base_filtered)
             for res in results:
                 if res["valid"]:
-                    # 如果啟動了勾選防禦，過濾出非強勢股
                     if filter_strong and not res["is_strong"]:
                         continue
                     final_stocks_summary.append(res)
 
-    # 【功能 1】分頁控制與九宮格控制機制
+    # 功能 1: 一頁顯示九個（3x3 九宮格）控制機制
     STOCKS_PER_PAGE = 9
     total_pages = max(1, (len(final_stocks_summary) + STOCKS_PER_PAGE - 1) // STOCKS_PER_PAGE)
     
@@ -612,7 +612,7 @@ else:
                 prev_price = item["price"] - item["change"]
                 pct = (item["change"] / prev_price) * 100 if prev_price != 0 else 0
                 
-                # 顯示價格與漲跌幅
+                # 功能 1: 顯示最新價格與漲跌幅
                 st.markdown(f"""
                     <div class="{price_class}">${item['price']:.1f}</div>
                     <div style="margin-top: 8px; margin-bottom: 12px;">
@@ -620,7 +620,7 @@ else:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 顯示小 K 線走勢圖 (Sparkline)
+                # 功能 1: 顯示小 K 線走勢圖 (Sparkline)
                 st.plotly_chart(item["fig"], config={'staticPlot': True}, use_container_width=False)
                 
                 if st.button(f"進入 {item['name']} 5指標分析", key=f"btn_{item['id']}", use_container_width=True):
@@ -629,7 +629,7 @@ else:
                     
                 st.markdown("</div>", unsafe_allow_html=True)
 
-        # 跨頁導航控制器
+        # 功能 1: 跨頁導航控制器（下一頁功能維持）
         st.markdown("---")
         p_prev, p_info, p_next = st.columns([1, 2, 1])
         with p_prev:
