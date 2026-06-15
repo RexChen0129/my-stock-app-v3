@@ -262,18 +262,7 @@ WATCHLIST = [
     {"name": "國光生", "id": "4142"}
 ]
 
-# --- 2. 智慧型動態 TTL 快取計算控制 ---
-def get_dynamic_ttl():
-    """動態計算快取生存時間：台股盤中交易時間(週一至週五 09:00 - 13:30)快取60秒，盤後12小時"""
-    now = datetime.datetime.now()
-    # 判斷是否為週一至週五且在 09:00 到 13:30 之間
-    is_market_open = (
-        now.weekday() < 5 and 
-        datetime.time(9, 0) <= now.time() <= datetime.time(13, 30)
-    )
-    return 60 if is_market_open else 43200
-
-# --- 3. 高效數據抓取與 V4 Headers 驗證 ---
+# --- 2. 高效數據抓取與 V4 Headers 加密驗證 ---
 def fetch_price_data(stock_id, start_date):
     """負責抓取原始股價數據 (V4 Headers 結構)"""
     URL = "https://api.finmindtrade.com/api/v4/data"
@@ -322,97 +311,85 @@ def fetch_inst_data(stock_id, start_date):
             time.sleep(0.5)
     return pd.DataFrame()
 
-# 呼叫包裝函數以套用動態快取
+@st.cache_data(ttl=600)
 def get_mini_price_data(stock_id):
-    """大廳專用極速快取：套用智慧型動態 TTL 快取機制"""
-    ttl_value = get_dynamic_ttl()
+    """大廳專用極速快取：僅抓取60天股價做迷你圖與今日/昨日價格判斷"""
+    start_date_p = (datetime.date.today() - datetime.timedelta(days=60)).strftime("%Y-%m-%d")
+    df_price = fetch_price_data(stock_id, start_date_p)
+    if df_price.empty:
+        return None
+    df_price['date_str'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
+    df_price = df_price.sort_values('date_str')
+    df_price.set_index('date_str', inplace=True)
+    return df_price
+
+@st.cache_data(ttl=600)
+def get_comprehensive_data(stock_id, days=730):
+    """詳情頁專用：同步並行抓取股價與近一年法人數據並完美對齊"""
+    start_date_p = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+    start_date_i = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
     
-    # 內嵌 Streamlit 快取裝飾器來達成動態變更 TTL 的效果
-    @st.cache_data(ttl=ttl_value)
-    def _cached_mini_data(s_id):
-        start_date_p = (datetime.date.today() - datetime.timedelta(days=60)).strftime("%Y-%m-%d")
-        df_price = fetch_price_data(s_id, start_date_p)
-        if df_price.empty:
-            return None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_p = executor.submit(fetch_price_data, stock_id, start_date_p)
+        future_i = executor.submit(fetch_inst_data, stock_id, start_date_i)
+        
+        df_price = future_p.result()
+        df_inst = future_i.result()
+
+    if df_price.empty:
+        return None
+
+    try:
         df_price['date_str'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
         df_price = df_price.sort_values('date_str')
-        df_price.set_index('date_str', inplace=True)
-        return df_price
 
-    return _cached_mini_data(stock_id)
-
-def get_comprehensive_data(stock_id, days=730):
-    """詳情頁專用：套用智慧型動態 TTL 快取機制"""
-    ttl_value = get_dynamic_ttl()
-
-    @st.cache_data(ttl=ttl_value)
-    def _cached_comprehensive_data(s_id, d_count):
-        start_date_p = (datetime.date.today() - datetime.timedelta(days=d_count)).strftime("%Y-%m-%d")
-        start_date_i = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
-        
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_p = executor.submit(fetch_price_data, s_id, start_date_p)
-            future_i = executor.submit(fetch_inst_data, s_id, start_date_i)
+        if not df_inst.empty:
+            df_inst['date_str'] = pd.to_datetime(df_inst['date']).dt.strftime('%Y-%m-%d')
+            df_inst.columns = [c.lower() for c in df_inst.columns]
             
-            df_price = future_p.result()
-            df_inst = future_i.result()
-
-        if df_price.empty:
-            return None
-
-        try:
-            df_price['date_str'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
-            df_price = df_price.sort_values('date_str')
-
-            if not df_inst.empty:
-                df_inst['date_str'] = pd.to_datetime(df_inst['date']).dt.strftime('%Y-%m-%d')
-                df_inst.columns = [c.lower() for c in df_inst.columns]
+            b_col = 'buy' if 'buy' in df_inst.columns else ('buy_value' if 'buy_value' in df_inst.columns else None)
+            s_col = 'sell' if 'sell' in df_inst.columns else ('sell_value' if 'sell_value' in df_inst.columns else None)
+            
+            if b_col and s_col:
+                df_inst['net'] = pd.to_numeric(df_inst[b_col]) - pd.to_numeric(df_inst[s_col])
+                daily_inst = df_inst.groupby('date_str')['net'].sum().reset_index()
                 
-                b_col = 'buy' if 'buy' in df_inst.columns else ('buy_value' if 'buy_value' in df_inst.columns else None)
-                s_col = 'sell' if 'sell' in df_inst.columns else ('sell_value' if 'sell_value' in df_inst.columns else None)
-                
-                if b_col and s_col:
-                    df_inst['net'] = pd.to_numeric(df_inst[b_col]) - pd.to_numeric(df_inst[s_col])
-                    daily_inst = df_inst.groupby('date_str')['net'].sum().reset_index()
-                    
-                    df = pd.merge(df_price, daily_inst, on='date_str', how='left')
-                    df.rename(columns={'net': 'Inst_Net'}, inplace=True)
-                    df['Inst_Net'] = df['Inst_Net'].fillna(0)
-                else:
-                    df_price['Inst_Net'] = 0
-                    df = df_price
+                df = pd.merge(df_price, daily_inst, on='date_str', how='left')
+                df.rename(columns={'net': 'Inst_Net'}, inplace=True)
+                df['Inst_Net'] = df['Inst_Net'].fillna(0)
             else:
                 df_price['Inst_Net'] = 0
                 df = df_price
+        else:
+            df_price['Inst_Net'] = 0
+            df = df_price
 
-            df.set_index('date_str', inplace=True)
-            
-            # 1. 均線指標計算 (MA 5/10/20)
-            df['MA5'] = df['close'].rolling(5).mean()
-            df['MA10'] = df['close'].rolling(10).mean()
-            df['MA20'] = df['close'].rolling(20).mean()
-            
-            # 5. KD 指標計算
-            l9, h9 = df['min'].rolling(9).min(), df['max'].rolling(9).max()
-            rsv = (df['close'] - l9) / (h9 - l9).replace(0, 1) * 100
-            df['K'] = rsv.ewm(com=2).mean()
-            df['D'] = df['K'].ewm(com=2).mean()
-            
-            # 4. MACD 趨勢計算
-            e12 = df['close'].ewm(span=12, adjust=False).mean()
-            e26 = df['close'].ewm(span=26, adjust=False).mean()
-            df['DIF'] = e12 - e26
-            df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
-            df['MACD_h'] = (df['DIF'] - df['DEA']) * 2
-            
-            return df
-        except Exception as e:
-            st.error(f"數據計算錯誤: {e}")
-            return None
+        df.set_index('date_str', inplace=True)
+        
+        # 均線指標計算 (MA 5/10/20)
+        df['MA5'] = df['close'].rolling(5).mean()
+        df['MA10'] = df['close'].rolling(10).mean()
+        df['MA20'] = df['close'].rolling(20).mean()
+        
+        # KD 指標計算
+        l9, h9 = df['min'].rolling(9).min(), df['max'].rolling(9).max()
+        rsv = (df['close'] - l9) / (h9 - l9).replace(0, 1) * 100
+        df['K'] = rsv.ewm(com=2).mean()
+        df['D'] = df['K'].ewm(com=2).mean()
+        
+        # MACD 指標計算
+        e12 = df['close'].ewm(span=12, adjust=False).mean()
+        e26 = df['close'].ewm(span=26, adjust=False).mean()
+        df['DIF'] = e12 - e26
+        df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+        df['MACD_h'] = (df['DIF'] - df['DEA']) * 2
+        
+        return df
+    except Exception as e:
+        st.error(f"數據計算錯誤: {e}")
+        return None
 
-    return _cached_comprehensive_data(stock_id, days)
-
-# --- 4. 輔助函數：多執行緒並行載入大廳數據與篩選狀態 ---
+# --- 3. 輔助函數：多執行緒並行預加載大廳所需的迷你數據與篩選狀態 ---
 def load_single_stock_summary(item):
     """並行載入單檔股票的迷你圖與快訊計算"""
     df = get_mini_price_data(item["id"])
@@ -421,7 +398,7 @@ def load_single_stock_summary(item):
         latest_price = recent['close'].iloc[-1]
         change = recent['close'].iloc[-1] - recent['close'].iloc[-2]
         
-        # 判斷核心邏輯：今日收盤 > 昨日收盤
+        # 判斷核心邏輯：今日 K 線高於昨日 K 線 (今日收盤 > 昨日收盤)
         is_strong = recent['close'].iloc[-1] > recent['close'].iloc[-2]
         
         # 預先生成圖表
@@ -449,7 +426,7 @@ def load_single_stock_summary(item):
         }
     return {"id": item["id"], "name": item["name"], "valid": False}
 
-# --- 5. 網頁介面 CSS 視覺美化 ---
+# --- 4. 網頁介面 CSS 視覺美化 ---
 st.set_page_config(layout="wide", page_title="台股自選控盤系統 APP v3")
 st.markdown("""
     <style>
@@ -473,19 +450,10 @@ st.markdown("""
     .stock-price-fall { font-size: 28px; font-weight: bold; color: #00aa00; margin-top: 10px; }
     .change-percent-rise { background-color: rgba(255,51,51,0.1); color: #ff3333; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 14px; }
     .change-percent-fall { background-color: rgba(0,170,0,0.1); color: #00aa00; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 14px; }
-    
-    /* 緊湊微縮型側邊策略樣式 */
-    .compact-panel {
-        background-color: #151821;
-        border: 1px solid #252936;
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin-bottom: 15px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 6. Session State 導航與分頁管理 ---
+# --- 5. Session State 導航與分頁管理 ---
 if 'selected_stock' not in st.session_state:
     st.session_state.selected_stock = None
 if 'current_page' not in st.session_state:
@@ -578,21 +546,13 @@ if st.session_state.selected_stock:
 else:
     st.write("# 📈 台股自選股大廳")
     
-    # 建立左右側精準寬度排版：調小左側佔比（1:5），釋放右側看盤主空間
-    sidebar_col, main_col = st.columns([1, 5])
+    # 建立左右側排版：左邊放全新勾選面板，右邊放主要看盤大廳
+    sidebar_col, main_col = st.columns([1, 4])
     
     with sidebar_col:
-        # 將外觀微縮，減少不必要的留白與寬度佔用
-        with st.container():
-            st.markdown('<div class="compact-panel">', unsafe_allow_html=True)
-            st.markdown("<p style='font-size:15px; font-weight:bold; margin-bottom:5px; color:#ffffff;'>🛠️ 策略快篩</p>", unsafe_allow_html=True)
-            filter_strong = st.checkbox("🔥 K線強勢 (今日>昨日)", value=False, help="勾選後僅列出今日收盤價高於昨日收盤價的標的")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # 盤中快取狀態動態提示（給評審看的技術亮點）
-            is_open = get_dynamic_ttl() == 60
-            status_text = "🟢 盤中高頻模式 (60s 快取)" if is_open else "🌙 盤後極速模式 (12h 快取)"
-            st.markdown(f"<p style='font-size:11px; color:#8892b0;'>系統狀態：<br>{status_text}</p>", unsafe_allow_html=True)
+        st.markdown("### 🛠️ 策略活頁夾")
+        # ✨ 新增功能：勾選框判斷「今天K線比昨天K線高」的股票
+        filter_strong = st.checkbox("🔥 K線強勢股 (今日>昨日)", value=False, help="勾選後僅列出今日收盤價高於昨日收盤價的標的")
         
     with main_col:
         # 【功能 2】搜尋欄：支援中文名稱 或 代碼模糊搜尋
@@ -615,7 +575,7 @@ else:
             results = pool.map(load_single_stock_summary, base_filtered)
             for res in results:
                 if res["valid"]:
-                    # 如果啟動了勾選，過濾出非強勢股
+                    # 如果啟動了勾選防禦，過濾出非強勢股
                     if filter_strong and not res["is_strong"]:
                         continue
                     final_stocks_summary.append(res)
