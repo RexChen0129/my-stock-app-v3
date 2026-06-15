@@ -8,7 +8,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 # --- 1. 全域配置與自選股清單 ---
-# 💡 已經幫你填入你正確且專屬的超長 Token
 FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiUmF5X0NoZW4iLCJlbWFpbCI6ImNoZW5ydWl4aWFuMDBAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.cRmVp07f_wOgMG3EZNfzZP5cmBRRX7VQX5ugV9fyVEk"
 
 # 🚀 完整保留 205 檔熱門台股分類清單，一個字都沒少
@@ -263,17 +262,15 @@ WATCHLIST = [
     {"name": "國光生", "id": "4142"}
 ]
 
-# --- 2. 高效數據抓取（全面修改為 FinMind V4 Headers 加密驗證規格） ---
+# --- 2. 高效數據抓取與 V4 Headers 加密驗證 ---
 def fetch_price_data(stock_id, start_date):
-    """負責抓取原始股價數據 (升級為 V4 Headers 結構)"""
+    """負責抓取原始股價數據 (V4 Headers 結構)"""
     URL = "https://api.finmindtrade.com/api/v4/data"
     params = {
         "dataset": "TaiwanStockPrice", 
         "data_id": stock_id, 
         "start_date": start_date
     }
-    
-    # 將 Token 移至標準 HTTP Headers，防止被新版伺服器當成匿名路人拒絕
     headers = {}
     if FINMIND_TOKEN:
         headers["Authorization"] = f"Bearer {FINMIND_TOKEN}"
@@ -281,8 +278,6 @@ def fetch_price_data(stock_id, start_date):
     try:
         res = requests.get(URL, params=params, headers=headers, timeout=15).json()
         df = pd.DataFrame(res.get('data', []))
-        
-        # 安全機制：如果帶 Token 失敗（例如額度爆了），才嘗試免密公共通道
         if df.empty:
             res = requests.get(URL, params=params, timeout=15).json()
             df = pd.DataFrame(res.get('data', []))
@@ -291,14 +286,13 @@ def fetch_price_data(stock_id, start_date):
         return pd.DataFrame()
 
 def fetch_inst_data(stock_id, start_date):
-    """負責抓取法人籌碼數據 (升級為 V4 Headers 結構)"""
+    """負責抓取法人籌碼數據 (V4 Headers 結構)"""
     URL = "https://api.finmindtrade.com/api/v4/data"
     params = {
-        "dataset": "TaiwanStockInstitutionalInvestorsBuySell", # 修正為符合新版 V4 的標準資料集名稱
+        "dataset": "TaiwanStockInstitutionalInvestorsBuySell", 
         "data_id": stock_id, 
         "start_date": start_date
     }
-    
     headers = {}
     if FINMIND_TOKEN:
         headers["Authorization"] = f"Bearer {FINMIND_TOKEN}"
@@ -307,11 +301,9 @@ def fetch_inst_data(stock_id, start_date):
         try:
             res = requests.get(URL, params=params, headers=headers, timeout=15).json()
             data = res.get('data', [])
-            
             if not data:
                 res = requests.get(URL, params=params, timeout=15).json()
                 data = res.get('data', [])
-                
             if data: 
                 return pd.DataFrame(data)
             time.sleep(0.5)
@@ -321,7 +313,7 @@ def fetch_inst_data(stock_id, start_date):
 
 @st.cache_data(ttl=600)
 def get_mini_price_data(stock_id):
-    """大廳專用極速快取：僅抓取60天股價做迷你圖"""
+    """大廳專用極速快取：僅抓取60天股價做迷你圖與今日/昨日價格判斷"""
     start_date_p = (datetime.date.today() - datetime.timedelta(days=60)).strftime("%Y-%m-%d")
     df_price = fetch_price_data(stock_id, start_date_p)
     if df_price.empty:
@@ -397,13 +389,20 @@ def get_comprehensive_data(stock_id, days=730):
         st.error(f"數據計算錯誤: {e}")
         return None
 
-# --- 3. 繪製首頁自選股卡片的迷你 K 線 (Sparkline) ---
-def render_mini_chart(stock_id):
-    df = get_mini_price_data(stock_id)
-    if df is not None and len(df) > 0:
+# --- 3. 輔助函數：多執行緒並行預加載大廳所需的迷你數據與篩選狀態 ---
+def load_single_stock_summary(item):
+    """並行載入單檔股票的迷你圖與快訊計算"""
+    df = get_mini_price_data(item["id"])
+    if df is not None and len(df) >= 2:
         recent = df.tail(30)
-        color = 'red' if recent['close'].iloc[-1] >= recent['close'].iloc[0] else 'green'
+        latest_price = recent['close'].iloc[-1]
+        change = recent['close'].iloc[-1] - recent['close'].iloc[-2]
         
+        # 判斷核心邏輯：今日 K 線高於昨日 K 線 (今日收盤 > 昨日收盤)
+        is_strong = recent['close'].iloc[-1] > recent['close'].iloc[-2]
+        
+        # 預先生成圖表
+        color = 'red' if change >= 0 else 'green'
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=recent.index, y=recent['close'],
@@ -411,7 +410,6 @@ def render_mini_chart(stock_id):
             hoverinfo='none',
             mode='lines'
         ))
-        
         fig.update_layout(
             width=220, height=70,
             margin=dict(l=5, r=5, t=5, b=5),
@@ -422,8 +420,11 @@ def render_mini_chart(stock_id):
             plot_bgcolor='rgba(0,0,0,0)',
             dragmode=False
         )
-        return fig, recent['close'].iloc[-1], recent['close'].iloc[-1] - recent['close'].iloc[-2]
-    return None, None, None
+        return {
+            "id": item["id"], "name": item["name"], "fig": fig, 
+            "price": latest_price, "change": change, "is_strong": is_strong, "valid": True
+        }
+    return {"id": item["id"], "name": item["name"], "valid": False}
 
 # --- 4. 網頁介面 CSS 視覺美化 ---
 st.set_page_config(layout="wide", page_title="台股自選控盤系統 APP v3")
@@ -459,8 +460,10 @@ if 'current_page' not in st.session_state:
     st.session_state.current_page = 0
 if 'last_search' not in st.session_state:
     st.session_state.last_search = ""
+if 'last_filter' not in st.session_state:
+    st.session_state.last_filter = False
 
-# --- A. 【功能 3】點進去後的 5 指標分析詳細頁面 ---
+# --- A. 【詳情頁】點進去後的 5 指標分析詳細頁面 ---
 if st.session_state.selected_stock:
     active_id = st.session_state.selected_stock
     
@@ -477,7 +480,6 @@ if st.session_state.selected_stock:
         df_plot = df.copy()
         plot_width = max(1200, len(df_plot) * 22)
         
-        # 完美建立五層垂直子圖，對應你的5大指標
         fig = make_subplots(
             rows=5, cols=1, 
             shared_xaxes=True, 
@@ -540,92 +542,103 @@ if st.session_state.selected_stock:
     else:
         st.error("未能載入該股之有效數據，請確認代碼或重新整理。")
 
-# --- B. 【功能 1 & 2】自選股首頁列表與搜尋頁面 ---
+# --- B. 【大廳頁】自選股首頁列表、策略篩選與搜尋面板 ---
 else:
     st.write("# 📈 台股自選股大廳")
-    st.write("精選股票 ")
     
-    # 【功能 2】最上面搜尋欄：支援中文名稱 或 代碼搜尋
-    search_id = st.text_input("🔍 快速搜尋任何台股代碼或中文名稱", value="", placeholder="請輸入中文名稱或4位數代碼 (如: 陽明, 2330)...")
+    # 建立左右側排版：左邊放全新勾選面板，右邊放主要看盤大廳
+    sidebar_col, main_col = st.columns([1, 4])
     
-    if search_id:
-        query = search_id.strip().lower()
-        filtered_list = [item for item in WATCHLIST if query in item["id"] or query in item["name"].lower()]
+    with sidebar_col:
+        st.markdown("### 🛠️ 策略活頁夾")
+        # ✨ 新增功能：勾選框判斷「今天K線比昨天K線高」的股票
+        filter_strong = st.checkbox("🔥 K線強勢股 (今日>昨日)", value=False, help="勾選後僅列出今日收盤價高於昨日收盤價的標的")
         
-        if st.session_state.last_search != query:
-            st.session_state.current_page = 0
-            st.session_state.last_search = query
-    else:
-        filtered_list = WATCHLIST
-        if st.session_state.last_search != "":
-            st.session_state.current_page = 0
-            st.session_state.last_search = ""
+    with main_col:
+        # 【功能 2】搜尋欄：支援中文名稱 或 代碼模糊搜尋
+        search_id = st.text_input("🔍 快速搜尋任何台股代碼或中文名稱", value="", placeholder="請輸入中文名稱或4位數代碼 (如: 陽明, 2330)...")
+    
+    # 計算基礎搜尋過濾
+    query = search_id.strip().lower() if search_id else ""
+    base_filtered = [item for item in WATCHLIST if query in item["id"] or query in item["name"].lower()] if query else WATCHLIST
 
-    # 【功能 1】一頁 9 個
+    # 重設頁碼控制偵測
+    if st.session_state.last_search != query or st.session_state.last_filter != filter_strong:
+        st.session_state.current_page = 0
+        st.session_state.last_search = query
+        st.session_state.last_filter = filter_strong
+
+    # 🚀 進階優化：利用 ThreadPoolExecutor 在背景快速檢驗、篩選與打包所需的股票數據，防止序列卡頓
+    final_stocks_summary = []
+    with st.spinner("正在執行多執行緒高可用資料校準與策略分析..."):
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            results = pool.map(load_single_stock_summary, base_filtered)
+            for res in results:
+                if res["valid"]:
+                    # 如果啟動了勾選防禦，過濾出非強勢股
+                    if filter_strong and not res["is_strong"]:
+                        continue
+                    final_stocks_summary.append(res)
+
+    # 【功能 1】分頁控制與九宮格控制機制
     STOCKS_PER_PAGE = 9
-    total_pages = max(1, (len(filtered_list) + STOCKS_PER_PAGE - 1) // STOCKS_PER_PAGE)
+    total_pages = max(1, (len(final_stocks_summary) + STOCKS_PER_PAGE - 1) // STOCKS_PER_PAGE)
     
     if st.session_state.current_page >= total_pages:
         st.session_state.current_page = 0
         
     start_idx = st.session_state.current_page * STOCKS_PER_PAGE
     end_idx = start_idx + STOCKS_PER_PAGE
-    page_stocks = filtered_list[start_idx:end_idx]
+    page_stocks = final_stocks_summary[start_idx:end_idx]
 
-    st.markdown(f"### 📌 自選股看盤清單 (符合搜尋條件共: {len(filtered_list)} 檔)")
-    
-    # 3x3 九宮格網格卡片佈局
-    cols = st.columns(3)
-    
-    for idx, item in enumerate(page_stocks):
-        col = cols[idx % 3]
-        with col:
-            with st.spinner(f"載入 {item['name']} 走勢..."):
-                fig_mini, latest_price, change = render_mini_chart(item["id"])
+    with main_col:
+        st.markdown(f"### 📌 自選股看盤清單 (符合篩選條件共: {len(final_stocks_summary)} 檔)")
+        
+        # 3x3 九宮格佈局
+        cols = st.columns(3)
+        for idx, item in enumerate(page_stocks):
+            col = cols[idx % 3]
+            with col:
+                st.markdown(f"""
+                    <div class="stock-card">
+                        <div class="stock-title">{item['name']}</div>
+                        <div class="stock-id">TWSE: {item['id']}</div>
+                """, unsafe_allow_html=True)
                 
-            st.markdown(f"""
-                <div class="stock-card">
-                    <div class="stock-title">{item['name']}</div>
-                    <div class="stock-id">TWSE: {item['id']}</div>
-            """, unsafe_allow_html=True)
-            
-            if latest_price is not None:
-                price_class = "stock-price-rise" if change >= 0 else "stock-price-fall"
-                pct_class = "change-percent-rise" if change >= 0 else "change-percent-fall"
-                sign = "+" if change >= 0 else ""
+                price_class = "stock-price-rise" if item["change"] >= 0 else "stock-price-fall"
+                pct_class = "change-percent-rise" if item["change"] >= 0 else "change-percent-fall"
+                sign = "+" if item["change"] >= 0 else ""
                 
-                prev_price = latest_price - change
-                pct = (change / prev_price) * 100 if prev_price != 0 else 0
+                prev_price = item["price"] - item["change"]
+                pct = (item["change"] / prev_price) * 100 if prev_price != 0 else 0
                 
                 # 顯示價格與漲跌幅
                 st.markdown(f"""
-                    <div class="{price_class}">${latest_price:.1f}</div>
+                    <div class="{price_class}">${item['price']:.1f}</div>
                     <div style="margin-top: 8px; margin-bottom: 12px;">
-                        <span class="{pct_class}">{sign}{change:.1f} ({sign}{pct:.2f}%)</span>
+                        <span class="{pct_class}">{sign}{item['change']:.1f} ({sign}{pct:.2f}%)</span>
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 顯示小的 K 線走勢圖
-                st.plotly_chart(fig_mini, config={'staticPlot': True}, use_container_width=False)
-            else:
-                st.write("暫無連線數據")
+                # 顯示小 K 線走勢圖 (Sparkline)
+                st.plotly_chart(item["fig"], config={'staticPlot': True}, use_container_width=False)
                 
-            if st.button(f"進入 {item['name']} 5指標分析", key=f"btn_{item['id']}", use_container_width=True):
-                st.session_state.selected_stock = item["id"]
-                st.rerun()
-                
-            st.markdown("</div>", unsafe_allow_html=True)
+                if st.button(f"進入 {item['name']} 5指標分析", key=f"btn_{item['id']}", use_container_width=True):
+                    st.session_state.selected_stock = item["id"]
+                    st.rerun()
+                    
+                st.markdown("</div>", unsafe_allow_html=True)
 
-    # 用下一頁尋找其他股票的導航控制器
-    st.markdown("---")
-    p_prev, p_info, p_next = st.columns([1, 2, 1])
-    with p_prev:
-        if st.button("◀ 上一頁", disabled=st.session_state.current_page == 0, use_container_width=True):
-            st.session_state.current_page -= 1
-            st.rerun()
-    with p_info:
-        st.markdown(f"<div style='text-align: center; font-size: 16px; margin-top: 6px; color: #8892b0;'>第 {st.session_state.current_page + 1} 頁 / 共 {total_pages} 頁</div>", unsafe_allow_html=True)
-    with p_next:
-        if st.button("下一頁 ▶", disabled=st.session_state.current_page >= total_pages - 1, use_container_width=True):
-            st.session_state.current_page += 1
-            st.rerun()
+        # 跨頁導航控制器
+        st.markdown("---")
+        p_prev, p_info, p_next = st.columns([1, 2, 1])
+        with p_prev:
+            if st.button("◀ 上一頁", disabled=st.session_state.current_page == 0, use_container_width=True):
+                st.session_state.current_page -= 1
+                st.rerun()
+        with p_info:
+            st.markdown(f"<div style='text-align: center; font-size: 16px; margin-top: 6px; color: #8892b0;'>第 {st.session_state.current_page + 1} 頁 / 共 {total_pages} 頁</div>", unsafe_allow_html=True)
+        with p_next:
+            if st.button("下一頁 ▶", disabled=st.session_state.current_page >= total_pages - 1, use_container_width=True):
+                st.session_state.current_page += 1
+                st.rerun()
